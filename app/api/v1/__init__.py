@@ -9,7 +9,12 @@ from app.api.v1.auth.auth import auth_bp
 # 导入Feed相关蓝图
 from app.api.v1.rss.feed import feed_bp
 
+rss_bp = Blueprint("rss", __name__)
+# 注册RSS蓝图
+rss_bp.register_blueprint(feed_bp, url_prefix="/feed")
+api_v1_bp.register_blueprint(rss_bp, url_prefix="/rss")
+
+
 # 注册认证蓝图
 api_v1_bp.register_blueprint(auth_bp, url_prefix="/auth")
 # 注册Feed蓝图
-api_v1_bp.register_blueprint(feed_bp, url_prefix="/feed")

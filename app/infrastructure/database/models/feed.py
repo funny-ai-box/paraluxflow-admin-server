@@ -2,7 +2,6 @@
 from datetime import datetime, timedelta
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, func
-from sqlalchemy.exc import NoResultFound
 
 from app.extensions import db
 from app.core.security import generate_uuid
@@ -12,10 +11,9 @@ class RssFeed(db.Model):
     """RSS Feed模型"""
     __tablename__ = "rss_feeds"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(String(32), primary_key=True, default=generate_uuid)
     url = Column(String(255))
     category_id = Column(Integer)
-    collection_id = Column(Integer)
     group_id = Column(Integer)
     logo = Column(String(255))
     title = Column(String(255))
@@ -55,8 +53,8 @@ class RssFeedCrawlScript(db.Model):
     __tablename__ = "rss_feed_crawl_scripts"
 
     id = Column(Integer, primary_key=True)
-    feed_id = Column(Integer, nullable=False)
-    group_id = Column(Integer)
+    feed_id = Column(String(32), nullable=False)
+
     script = Column(LONGTEXT)
     is_published = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.now)
@@ -68,7 +66,7 @@ class RssFeedArticle(db.Model):
     __tablename__ = "rss_feed_articles"
 
     id = Column(Integer, primary_key=True)
-    feed_id = Column(Integer, nullable=False)
+    feed_id = Column(String(32), nullable=False)
     feed_logo = Column(String(255))
     feed_title = Column(String(255))
     link = Column(Text, nullable=False)

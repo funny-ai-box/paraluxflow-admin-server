@@ -70,14 +70,16 @@ class RssFeedRepository:
             logger.error(f"获取所有Feed失败: {str(e)}")
             return []
 
-    def get_filtered_feeds(self, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """根据条件筛选Feed
+    def get_filtered_feeds(self, filters: Dict[str, Any], page: int = 1, per_page: int = 20) -> Dict[str, Any]:
+        """根据条件筛选Feed，支持分页
         
         Args:
             filters: 筛选条件字典
-            
+            page: 页码，从1开始
+            per_page: 每页记录数
+                
         Returns:
-            符合条件的Feed列表
+            分页结果，包含列表和分页信息
         """
         try:
             query = self.db.query(RssFeed)
@@ -86,8 +88,8 @@ class RssFeedRepository:
             if filters.get("title"):
                 query = query.filter(RssFeed.title.like(f"%{filters['title']}%"))
             
-            if filters.get("group_id"):
-                query = query.filter(RssFeed.group_id == filters["group_id"])
+            if filters.get("category_id"):
+                query = query.filter(RssFeed.category_id == filters["category_id"])
                 
             if filters.get("url"):
                 query = query.filter(RssFeed.url.like(f"%{filters['url']}%"))
@@ -98,16 +100,37 @@ class RssFeedRepository:
             if "is_active" in filters:
                 query = query.filter(RssFeed.is_active == filters["is_active"])
             
+            # 计算总记录数
+            total = query.count()
+            
             # 按ID降序排列
             query = query.order_by(desc(RssFeed.id))
-            feeds = query.all()
             
-            return [self._feed_to_dict(feed) for feed in feeds]
+            # 应用分页
+            feeds = query.limit(per_page).offset((page - 1) * per_page).all()
+            
+            # 计算总页数
+            pages = (total + per_page - 1) // per_page if per_page > 0 else 0
+            
+            return {
+                "list": [self._feed_to_dict(feed) for feed in feeds],
+                "total": total,
+                "pages": pages,
+                "current_page": page,
+                "per_page": per_page
+            }
         except SQLAlchemyError as e:
             logger.error(f"筛选Feed失败: {str(e)}")
-            return []
+            return {
+                "list": [],
+                "total": 0,
+                "pages": 0,
+                "current_page": page,
+                "per_page": per_page,
+                "error": str(e)
+            }
 
-    def get_feed_by_id(self, feed_id: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    def get_feed_by_id(self, feed_id: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """根据ID获取Feed
         
         Args:
@@ -147,7 +170,7 @@ class RssFeedRepository:
             logger.error(f"添加Feed失败: {str(e)}")
             return str(e), None
 
-    def update_feed_status(self, feed_id: int, status: bool) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    def update_feed_status(self, feed_id: str, status: bool) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """更新Feed状态
         
         Args:
@@ -173,7 +196,7 @@ class RssFeedRepository:
             return str(e), None
 
     def update_feed_fetch_status(
-        self, feed_id: int, status: int, error_message: Optional[str] = None
+        self, feed_id: str, status: int, error_message: Optional[str] = None
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """更新Feed获取状态
         
@@ -211,7 +234,7 @@ class RssFeedRepository:
             logger.error(f"更新Feed获取状态失败, ID={feed_id}: {str(e)}")
             return str(e), None
 
-    def bulk_update_feeds_fetch_time(self, feed_ids: List[int]) -> Optional[str]:
+    def bulk_update_feeds_fetch_time(self, feed_ids: List[str]) -> Optional[str]:
         """批量更新Feed获取时间
         
         Args:
@@ -245,7 +268,7 @@ class RssFeedRepository:
             "id": feed.id,
             "url": feed.url,
             "category_id": feed.category_id,
-            "collection_id": feed.collection_id,
+
             "group_id": feed.group_id,
             "logo": feed.logo,
             "title": feed.title,

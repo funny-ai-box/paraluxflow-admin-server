@@ -10,7 +10,7 @@ from flask import Blueprint, request, jsonify, Response, g, current_app
 from werkzeug.utils import secure_filename
 
 from app.api.middleware.auth import auth_required
-from app.core.responses import success_response
+from app.core.responses import error_response, success_response
 from app.core.exceptions import ValidationException, NotFoundException
 from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.feed_repository import (
@@ -133,42 +133,67 @@ def upload_logo():
 @feed_bp.route("/list", methods=["GET"])
 @auth_required
 def get_feed_list():
-    """获取Feed列表
+    """获取Feed列表，支持分页和筛选
+    
+    支持的筛选参数:
+    - page: 页码，默认1
+    - per_page: 每页数量，默认20
+    - title: 标题模糊搜索
+    - category_id: 分类ID
+    - is_active: 状态(1=启用, 0=禁用)
     
     Returns:
-        Feed列表
+        Feed列表和分页信息
     """
     try:
-        # 获取筛选条件
-        filter_data = request.args.get("data", "")
-        if not filter_data:
-            filter_data = {}
+        # 获取分页参数
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 20, type=int)
+        
+        # 构建筛选条件
+        filters = {}
+        
+        # 标题筛选（模糊搜索）
+        title = request.args.get("title")
+        if title:
+            filters["title"] = title
+        
+        # 分类筛选
+        category_id = request.args.get("category_id", type=int)
+        if category_id:
+            filters["category_id"] = category_id
+        
+        # 状态筛选
+        is_active = request.args.get("is_active", type=int)
+        if is_active is not None:
+            filters["is_active"] = bool(is_active)
         
         # 创建会话和存储库
         db_session = get_db_session()
         feed_repo = RssFeedRepository(db_session)
         category_repo = RssFeedCategoryRepository(db_session)
-  
+        collection_repo = RssFeedCollectionRepository(db_session)
         
-        # 获取所有Feed
-        all_feeds = feed_repo.get_filtered_feeds(filter_data)
+        # 获取分页Feed列表
+        result = feed_repo.get_filtered_feeds(filters, page, per_page)
         
-        # 获取所有分类和集合
+        # 获取所有分类和集合（用于关联数据）
         all_categories = category_repo.get_all_categories()
-
+        all_collections = collection_repo.get_all_collections()
+        
         # 关联数据
-        for feed in all_feeds:
+        for feed in result["list"]:
             # 关联分类
             category = next(
                 (cat for cat in all_categories if cat["id"] == feed["category_id"]), None
             )
             feed["category"] = category
-       
+         
         
-        return success_response(all_feeds)
+        return success_response(result)
     except Exception as e:
         logger.error(f"获取Feed列表失败: {str(e)}")
-        return success_response(None, f"获取Feed列表失败: {str(e)}", 60001)
+        return error_response(60002, f"获取Feed列表失败: {str(e)}", )
 
 
 @feed_bp.route("/detail", methods=["GET"])
@@ -183,21 +208,21 @@ def get_feed_detail():
         # 获取Feed ID
         feed_id = request.args.get("feed_id")
         if not feed_id:
-            return success_response(None, "缺少feed_id参数", 60001)
+            return error_response(60001, "缺少feed_id参数", )
         
         # 创建会话和存储库
         db_session = get_db_session()
         feed_repo = RssFeedRepository(db_session)
         
         # 获取Feed详情
-        err, feed = feed_repo.get_feed_by_id(int(feed_id))
+        err, feed = feed_repo.get_feed_by_id(feed_id)
         if err:
-            return success_response(None, err, 60001)
+            return error_response(60002, f"获取Feed信息失败: {err}", )
         
         return success_response(feed)
     except Exception as e:
         logger.error(f"获取Feed详情失败: {str(e)}")
-        return success_response(None, f"获取Feed详情失败: {str(e)}", 60001)
+        return error_response(60003, f"获取Feed详情失败: {str(e)}", )
 
 
 @feed_bp.route("/categories", methods=["GET"])
@@ -244,9 +269,7 @@ def add_feed():
                 None, f"缺少必填字段: {', '.join(missing_fields)}", 60001
             )
         
-        # 设置默认集合ID
-        data["collection_id"] = data.get("collection_id", 0)
-        
+
         # 创建会话和存储库
         db_session = get_db_session()
         feed_repo = RssFeedRepository(db_session)

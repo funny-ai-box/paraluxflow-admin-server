@@ -8,3 +8,12 @@ def success_response(data=None, message="操作成功"):
         "message": message,
         "data": data
     }
+
+
+def error_response(code, message="操作失败"):
+    """生成标准错误响应"""
+    return {
+        "code": code,
+        "message": message,
+        "data": None
+    }
