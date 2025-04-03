@@ -7,7 +7,7 @@ from sqlalchemy import and_, or_, desc
 from sqlalchemy.exc import SQLAlchemyError, NoResultFound
 from sqlalchemy.orm import Session
 
-from app.infrastructure.database.models.feed import (
+from app.infrastructure.database.models.rss import (
     RssFeed, 
     RssFeedCategory, 
     RssFeedCollection,

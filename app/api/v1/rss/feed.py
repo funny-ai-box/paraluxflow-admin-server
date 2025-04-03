@@ -13,7 +13,7 @@ from app.api.middleware.auth import auth_required
 from app.core.responses import error_response, success_response
 from app.core.exceptions import ValidationException, NotFoundException
 from app.infrastructure.database.session import get_db_session
-from app.infrastructure.database.repositories.feed_repository import (
+from app.infrastructure.database.repositories.rss_repository import (
     RssFeedRepository,
     RssFeedCategoryRepository,
     RssFeedCollectionRepository,
