@@ -4,7 +4,7 @@ import time
 import logging
 import traceback
 from flask import request, g, current_app
-from app.infrastructure.database.repositories.user_app_repository import UserAppRepository
+
 from app.core.exceptions import AuthenticationException, ValidationException, NotFoundException
 from app.core.status_codes import APPLICATION_NOT_FOUND, PARAMETER_ERROR, RATE_LIMITED
 from app.infrastructure.database.session import get_db_session
@@ -91,27 +91,16 @@ def app_key_required(f):
             
             # 初始化存储库
             db_session = get_db_session()
-            user_app_repo = UserAppRepository(db_session)
-            
-            # 验证应用密钥
-            app = user_app_repo.get_by_app_key(app_key)
-            if not app:
-                logger.warning(f"Invalid app key: {app_key}")
-                raise NotFoundException("无效的应用密钥")
-            
-            # 验证应用是否已发布
-            if not app.published:
-                logger.warning(f"App not published: {app_key}")
-                raise AuthenticationException("该应用未发布，无法使用")
+
+        
+
             
             # 将应用信息和用户ID存储在请求上下文中
             g.app_key = app_key
-            g.app = app
-            g.user_id = app.user_id
+
             g.db_session = db_session
             
-            # 记录API调用
-            logger.info(f"API call from app: {app.name} (ID: {app.id}), User ID: {app.user_id}")
+ 
             
             # 执行被装饰的函数
             return f(*args, **kwargs)

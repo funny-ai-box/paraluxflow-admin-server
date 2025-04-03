@@ -148,15 +148,14 @@ def get_feed_list():
         db_session = get_db_session()
         feed_repo = RssFeedRepository(db_session)
         category_repo = RssFeedCategoryRepository(db_session)
-        collection_repo = RssFeedCollectionRepository(db_session)
+  
         
         # 获取所有Feed
         all_feeds = feed_repo.get_filtered_feeds(filter_data)
         
         # 获取所有分类和集合
         all_categories = category_repo.get_all_categories()
-        all_collections = collection_repo.get_all_collections()
-        
+
         # 关联数据
         for feed in all_feeds:
             # 关联分类
@@ -164,12 +163,7 @@ def get_feed_list():
                 (cat for cat in all_categories if cat["id"] == feed["category_id"]), None
             )
             feed["category"] = category
-            
-            # 关联集合
-            collection = next(
-                (col for col in all_collections if col["id"] == feed["collection_id"]), None
-            )
-            feed["collection"] = collection
+       
         
         return success_response(all_feeds)
     except Exception as e:
