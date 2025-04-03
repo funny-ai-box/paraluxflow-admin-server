@@ -1,7 +1,6 @@
 """文章摘要相关数据库模型"""
-# 插入models/digest.py的内容
 from datetime import datetime
-from sqlalchemy import Column, DateTime, Integer, String, Text, Boolean, ForeignKey, JSON
+from sqlalchemy import Column, DateTime, Integer, String, Text, Boolean,JSON, Float
 
 from app.extensions import db
 from app.core.security import generate_uuid
@@ -20,7 +19,7 @@ class ArticleDigest(db.Model):
     digest_type = Column(String(50), default="daily", comment="摘要类型: daily, weekly, custom")
     
     # 元数据
-    metadata = Column(JSON, nullable=True, comment="元数据，如使用的模型、处理时间等")
+    meta_info = Column(JSON, nullable=True, comment="元数据，如使用的模型、处理时间等")
     
     # 状态
     status = Column(Integer, default=1, comment="状态: 0=生成中, 1=已完成, 2=失败")
@@ -49,7 +48,11 @@ class DigestRule(db.Model):
     include_keywords = Column(Boolean, default=True, comment="是否包含关键词")
     
     # 大模型配置
-    provider_config_id = Column(String(32), nullable=True, comment="使用的大模型配置ID")
+    provider_type = Column(String(50), nullable=True, comment="AI提供商类型，如openai, anthropic, volcano")
+    model_id = Column(String(100), nullable=True, comment="模型标识符，如gpt-4o")
+    temperature = Column(Float, default=0.7, comment="温度参数(0-1)")
+    max_tokens = Column(Integer, default=1500, comment="最大生成的令牌数量")
+    top_p = Column(Float, default=1.0, comment="核采样参数(0-1)")
     
     # 调度配置
     schedule_time = Column(String(50), default="03:00", comment="调度时间，格式HH:MM")

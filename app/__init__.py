@@ -40,9 +40,6 @@ def register_blueprints(app):
     """注册蓝图"""
     from app.api.v1 import api_v1_bp
     app.register_blueprint(api_v1_bp, url_prefix='/api/v1')
-    
-
-    
     return None
 
 def register_errorhandlers(app):

@@ -1,5 +1,4 @@
 """摘要服务实现"""
-# 插入services/digest_service.py的内容
 import logging
 import json
 from datetime import datetime, timedelta
@@ -9,7 +8,10 @@ from app.core.exceptions import APIException, ValidationException
 from app.core.status_codes import EXTERNAL_API_ERROR, PARAMETER_ERROR
 from app.infrastructure.database.repositories.digest_repository import DigestRepository
 from app.infrastructure.database.repositories.rss_repository import RssFeedArticleRepository, RssFeedArticleContentRepository
-from app.infrastructure.database.repositories.llm_repository import LLMProviderConfigRepository
+from app.infrastructure.database.repositories.rss_repository import RssFeedArticleRepository, RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.llm_repository import LLMProviderRepository
+from app.infrastructure.database.session import get_db_session
+from app.infrastructure.llm_providers.factory import LLMProviderFactory
 from app.infrastructure.llm_providers.factory import LLMProviderFactory
 
 logger = logging.getLogger(__name__)
@@ -22,8 +24,7 @@ class DigestService:
         self, 
         digest_repo: DigestRepository, 
         article_repo: Optional[RssFeedArticleRepository] = None,
-        article_content_repo: Optional[RssFeedArticleContentRepository] = None,
-        llm_config_repo: Optional[LLMProviderConfigRepository] = None
+        article_content_repo: Optional[RssFeedArticleContentRepository] = None
     ):
         """初始化服务
         
@@ -31,12 +32,10 @@ class DigestService:
             digest_repo: 摘要存储库
             article_repo: 文章存储库(可选)
             article_content_repo: 文章内容存储库(可选)
-            llm_config_repo: LLM配置存储库(可选)
         """
         self.digest_repo = digest_repo
         self.article_repo = article_repo
         self.article_content_repo = article_content_repo
-        self.llm_config_repo = llm_config_repo
     
     def generate_daily_digest(
         self, 
@@ -123,7 +122,7 @@ class DigestService:
                 "source_date": date,
                 "digest_type": "daily",
                 "status": 0,  # 生成中
-                "metadata": {
+                "meta_info": {
                     "rule_id": rule.get("id"),
                     "article_count": len(articles),
                     "generation_started_at": datetime.now().isoformat()
@@ -132,23 +131,42 @@ class DigestService:
             
             # 获取LLM配置
             llm_provider = None
-            llm_config = None
             
-            if rule.get("provider_config_id") and self.llm_config_repo:
+            if rule.get("provider_type") and rule.get("model_id"):
                 try:
-                    llm_config = self.llm_config_repo.get_by_id(rule["provider_config_id"], user_id)
+                    # 从数据库中获取对应的提供商配置
+                    db_session = get_db_session()
+                    provider_repo = LLMProviderRepository(db_session)
+                    
+                    # 查询对应类型的提供商
+                    providers = provider_repo.get_all_providers()
+                    provider_config = None
+                    
+                    for provider in providers:
+                        if provider["provider_type"] == rule["provider_type"] and provider["is_active"]:
+                            provider_config = provider
+                            break
+                    
+                    if not provider_config:
+                        logger.warning(f"未找到类型为 {rule['provider_type']} 的活跃提供商")
+                        return self._generate_simple_digest(articles, feed_groups, rule, date)
                     
                     # 初始化LLM提供商
-                    provider_config = {
-                        "default_model": llm_config.get("default_model", ""),
-                        "max_retries": llm_config.get("max_retries", 3),
-                        "timeout": llm_config.get("request_timeout", 60)
+                    provider_init_config = {
+                        "default_model": rule.get("model_id", ""),
+                        "timeout": provider_config.get("request_timeout", 60),
+                        "max_retries": provider_config.get("max_retries", 3)
                     }
                     
+                    # 如果有API基础URL，添加到配置中
+                    if provider_config.get("api_base_url"):
+                        provider_init_config["api_base_url"] = provider_config["api_base_url"]
+                    
+                    # 初始化LLM提供商
                     llm_provider = LLMProviderFactory.create_provider(
-                        llm_config["provider_type"],
-                        llm_config["api_key"],
-                        **provider_config
+                        provider_config["provider_type"],
+                        provider_config["api_key"],
+                        **provider_init_config
                     )
                 except Exception as e:
                     logger.error(f"初始化LLM提供商失败: {str(e)}")
@@ -190,8 +208,8 @@ class DigestService:
             self.digest_repo.update_digest(digest.id, user_id, {
                 "content": digest_content,
                 "status": 1,  # 已完成
-                "metadata": {
-                    **digest.metadata,
+                "meta_info": {
+                    **digest.meta_info,
                     "generation_completed_at": datetime.now().isoformat(),
                     "used_llm": llm_provider.get_provider_name() if llm_provider else "none"
                 }
@@ -213,8 +231,8 @@ class DigestService:
                     self.digest_repo.update_digest(digest.id, user_id, {
                         "status": 2,  # 失败
                         "error_message": str(e),
-                        "metadata": {
-                            **digest.metadata,
+                        "meta_info": {
+                            **digest.meta_info,
                             "error_at": datetime.now().isoformat()
                         }
                     })
@@ -307,8 +325,9 @@ class DigestService:
             # 调用LLM生成摘要
             response = llm_provider.generate_chat_completion(
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=1500,
-                temperature=0.7
+                max_tokens=rule.get("max_tokens", 1500),
+                temperature=rule.get("temperature", 0.7),
+                top_p=rule.get("top_p", 1.0)
             )
             
             if "message" in response and "content" in response["message"]:

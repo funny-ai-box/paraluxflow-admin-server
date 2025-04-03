@@ -1,6 +1,5 @@
 """摘要API控制器"""
-# 插入api/v1/digest/digest.py的内容
-"""摘要API控制器"""
+# 更新digest.py的内容，移除对LLMProviderConfigRepository的引用
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any
@@ -15,7 +14,6 @@ from app.core.status_codes import PARAMETER_ERROR
 from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.digest_repository import DigestRepository
 from app.infrastructure.database.repositories.rss_repository import RssFeedArticleRepository, RssFeedArticleContentRepository
-from app.infrastructure.database.repositories.llm_repository import LLMProviderConfigRepository
 from app.domains.digest.services.digest_service import DigestService
 
 logger = logging.getLogger(__name__)
@@ -165,10 +163,9 @@ def generate_digest():
         digest_repo = DigestRepository(db_session)
         article_repo = RssFeedArticleRepository(db_session)
         content_repo = RssFeedArticleContentRepository(db_session)
-        llm_config_repo = LLMProviderConfigRepository(db_session)
         
         # 初始化服务
-        digest_service = DigestService(digest_repo, article_repo, content_repo, llm_config_repo)
+        digest_service = DigestService(digest_repo, article_repo, content_repo)
         
         # 生成摘要
         if digest_type == "daily":
@@ -277,7 +274,14 @@ def update_digest_rule():
         "summary_length": 300, // 可选
         "include_categories": true, // 可选
         "include_keywords": true, // 可选
-        "provider_config_id": "config_id", // 可选
+        
+        // LLM 配置
+        "provider_type": "openai", // 可选，AI提供商类型
+        "model_id": "gpt-4o", // 可选，模型ID
+        "temperature": 0.7, // 可选，温度参数
+        "max_tokens": 1500, // 可选，最大生成token数
+        "top_p": 1.0, // 可选，核采样参数
+        
         "schedule_time": "03:00", // 可选
         "is_active": true // 可选
     }

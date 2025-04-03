@@ -57,7 +57,7 @@ class LLMModelRepository:
             model = self.db.query(LLMModel).filter(LLMModel.model_id == model_id).first()
             
             if not model:
-                raise NotFoundException(f"未找到标识符为{model_id}的AI模型", MODEL_NOT_FOUND)
+                raise NotFoundException(f"未找到标识符为{model_id}的AI模型")
             
             return self._model_to_dict(model)
         except NotFoundException:
@@ -82,7 +82,7 @@ class LLMModelRepository:
             model = self.db.query(LLMModel).filter(LLMModel.id == model_id).first()
             
             if not model:
-                raise NotFoundException(f"未找到ID为{model_id}的AI模型", MODEL_NOT_FOUND)
+                raise NotFoundException(f"未找到ID为{model_id}的AI模型")
             
             return self._model_to_dict(model)
         except NotFoundException:
@@ -177,7 +177,7 @@ class LLMProviderRepository:
             provider = self.db.query(LLMProvider).filter(LLMProvider.id == provider_id).first()
             
             if not provider:
-                raise NotFoundException(f"未找到ID为{provider_id}的AI提供商", PROVIDER_NOT_FOUND)
+                raise NotFoundException(f"未找到ID为{provider_id}的AI提供商")
             
             return self._provider_to_dict(provider)
         except NotFoundException:
@@ -204,7 +204,7 @@ class LLMProviderRepository:
             # 获取提供商
             provider = self.db.query(LLMProvider).filter(LLMProvider.id == provider_id).first()
             if not provider:
-                raise NotFoundException(f"未找到ID为{provider_id}的AI提供商", PROVIDER_NOT_FOUND)
+                raise NotFoundException(f"未找到ID为{provider_id}的AI提供商")
             
             # 更新配置字段
             for key, value in config_data.items():

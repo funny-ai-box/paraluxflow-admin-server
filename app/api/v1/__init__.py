@@ -23,6 +23,11 @@ from app.api.v1.rss.script import script_bp
 # 注册爬取脚本蓝图
 api_v1_bp.register_blueprint(script_bp, url_prefix="/script")
 
+# 导入LLM相关蓝图
+from app.api.v1.llm.llm import llm_bp
+# 注册LLM蓝图
+api_v1_bp.register_blueprint(llm_bp, url_prefix="/llm")
+
 
 # 注册认证蓝图
 api_v1_bp.register_blueprint(auth_bp, url_prefix="/auth")

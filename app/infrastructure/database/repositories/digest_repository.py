@@ -1,5 +1,4 @@
 """摘要相关存储库"""
-# 插入repositories/digest_repository.py的内容
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Union
@@ -481,7 +480,7 @@ class DigestRepository:
             "article_count": digest.article_count,
             "source_date": digest.source_date.isoformat() if digest.source_date else None,
             "digest_type": digest.digest_type,
-            "metadata": digest.metadata,
+            "meta_info": digest.meta_info,
             "status": digest.status,
             "error_message": digest.error_message,
             "created_at": digest.created_at.isoformat() if digest.created_at else None,
@@ -507,7 +506,14 @@ class DigestRepository:
             "summary_length": rule.summary_length,
             "include_categories": rule.include_categories,
             "include_keywords": rule.include_keywords,
-            "provider_config_id": rule.provider_config_id,
+            "provider_type": rule.provider_type,
+            "model_id": rule.model_id,
+            "api_key": rule.api_key,
+            "api_base_url": rule.api_base_url,
+            "temperature": rule.temperature,
+            "max_tokens": rule.max_tokens,
+            "top_p": rule.top_p,
+            "request_timeout": rule.request_timeout,
             "schedule_time": rule.schedule_time,
             "is_active": rule.is_active,
             "created_at": rule.created_at.isoformat() if rule.created_at else None,
