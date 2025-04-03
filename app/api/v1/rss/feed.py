@@ -16,7 +16,7 @@ from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.rss_repository import (
     RssFeedRepository,
     RssFeedCategoryRepository,
-    RssFeedCollectionRepository,
+
     RssFeedArticleRepository,
     RssFeedArticleContentRepository
 )
@@ -44,37 +44,7 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-@feed_bp.route("/proxy-image", methods=["GET"])
-def proxy_image():
-    """代理获取图片
-    
-    Returns:
-        图片内容
-    """
-    try:
-        # 获取并解码图片URL
-        image_url = unquote(request.args.get("url", ""))
-        if not image_url:
-            return "未提供URL", 400
-        
-        # 使用Feed服务获取图片
-        image_content, mime_type, error = FeedService.proxy_image(image_url)
-        if error:
-            return f"获取图片失败: {error}", 404
-        
-        # 返回图片内容
-        return Response(
-            image_content,
-            mimetype=mime_type,
-            headers={
-                "Cache-Control": "public, max-age=31536000",
-                "Access-Control-Allow-Origin": "*",
-            }
-        )
-    except Exception as e:
-        logger.error(f"代理获取图片失败: {str(e)}")
-        return str(e), 404
-    
+ 
 
 @feed_bp.route("/upload-logo", methods=["POST"])
 @auth_required
@@ -172,15 +142,14 @@ def get_feed_list():
         db_session = get_db_session()
         feed_repo = RssFeedRepository(db_session)
         category_repo = RssFeedCategoryRepository(db_session)
-        collection_repo = RssFeedCollectionRepository(db_session)
+      
         
         # 获取分页Feed列表
         result = feed_repo.get_filtered_feeds(filters, page, per_page)
         
         # 获取所有分类和集合（用于关联数据）
         all_categories = category_repo.get_all_categories()
-        all_collections = collection_repo.get_all_collections()
-        
+
         # 关联数据
         for feed in result["list"]:
             # 关联分类
@@ -259,15 +228,13 @@ def add_feed():
         # 获取请求数据
         data = request.get_json()
         if not data:
-            return success_response(None, "未提供数据", 60001)
+            return error_response(60001, "未提供数据")
         
         # 验证必填字段
         required_fields = ["title", "logo", "url", "category_id"]
         missing_fields = [field for field in required_fields if field not in data]
         if missing_fields:
-            return success_response(
-                None, f"缺少必填字段: {', '.join(missing_fields)}", 60001
-            )
+            return error_response(60001, f"缺少必填字段: {', '.join(missing_fields)}")
         
 
         # 创建会话和存储库
@@ -277,12 +244,12 @@ def add_feed():
         # 添加Feed
         err, result = feed_repo.add_feed(data)
         if err:
-            return success_response(None, err, 60001)
+            return error_response(60002, f"添加Feed失败: {err}")
         
         return success_response(result)
     except Exception as e:
         logger.error(f"添加Feed失败: {str(e)}")
-        return success_response(None, f"添加Feed失败: {str(e)}", 60001)
+        return error_response(60003, f"添加Feed失败: {str(e)}")
 
 
 @feed_bp.route("/sync_articles", methods=["POST"])

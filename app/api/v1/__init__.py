@@ -3,7 +3,7 @@ from flask import Blueprint
 
 # 创建API v1主蓝图
 api_v1_bp = Blueprint("api_v1", __name__)
-
+from app.api.v1.digest.digest import digest_bp
 # 导入认证相关蓝图
 from app.api.v1.auth.auth import auth_bp
 # 导入Feed相关蓝图
@@ -13,8 +13,18 @@ rss_bp = Blueprint("rss", __name__)
 # 注册RSS蓝图
 rss_bp.register_blueprint(feed_bp, url_prefix="/feed")
 api_v1_bp.register_blueprint(rss_bp, url_prefix="/rss")
+# 导入文章相关蓝图
+from app.api.v1.rss.article import article_bp
+# 注册文章蓝图
+api_v1_bp.register_blueprint(article_bp, url_prefix="/article")
+
+# 导入爬取脚本相关蓝图
+from app.api.v1.rss.script import script_bp
+# 注册爬取脚本蓝图
+api_v1_bp.register_blueprint(script_bp, url_prefix="/script")
 
 
 # 注册认证蓝图
 api_v1_bp.register_blueprint(auth_bp, url_prefix="/auth")
 # 注册Feed蓝图
+api_v1_bp.register_blueprint(digest_bp, url_prefix="/digest")

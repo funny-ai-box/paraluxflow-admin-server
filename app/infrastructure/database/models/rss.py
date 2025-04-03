@@ -14,7 +14,6 @@ class RssFeed(db.Model):
     id = Column(String(32), primary_key=True, default=generate_uuid)
     url = Column(String(255))
     category_id = Column(Integer)
-    group_id = Column(Integer)
     logo = Column(String(255))
     title = Column(String(255))
     description = Column(Text)
@@ -37,28 +36,6 @@ class RssFeedCategory(db.Model):
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False)
     is_delete = Column(Integer, default=0)
-
-
-class RssFeedCollection(db.Model):
-    """RSS Feed集合模型"""
-    __tablename__ = "rss_feed_collections"
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False)
-    is_delete = Column(Integer, default=0)
-
-
-class RssFeedCrawlScript(db.Model):
-    """RSS Feed爬取脚本模型"""
-    __tablename__ = "rss_feed_crawl_scripts"
-
-    id = Column(Integer, primary_key=True)
-    feed_id = Column(String(32), nullable=False)
-
-    script = Column(LONGTEXT)
-    is_published = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 class RssFeedArticle(db.Model):
@@ -205,3 +182,18 @@ class RssFeedArticleCrawlBatch(db.Model):
     
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class RssFeedCrawlScript(db.Model):
+    """RSS Feed爬取脚本模型"""
+    __tablename__ = "rss_feed_crawl_scripts"
+
+    id = Column(Integer, primary_key=True)
+    feed_id = Column(String(32), nullable=False)
+    group_id = Column(Integer)  # 分组ID，与feed_id互斥
+    script = Column(LONGTEXT)
+    is_published = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    def __repr__(self):
+        return f"<RssFeedCrawlScript id={self.id}, feed_id={self.feed_id}, is_published={self.is_published}>"

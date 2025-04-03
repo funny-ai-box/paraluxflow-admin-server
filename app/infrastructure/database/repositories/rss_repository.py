@@ -10,8 +10,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.database.models.rss import (
     RssFeed, 
     RssFeedCategory, 
-    RssFeedCollection,
-    RssFeedCrawlScript,
+
     RssFeedArticle,
     RssFeedArticleContent,
     RssFeedArticleCrawlLog,
@@ -269,7 +268,7 @@ class RssFeedRepository:
             "url": feed.url,
             "category_id": feed.category_id,
 
-            "group_id": feed.group_id,
+
             "logo": feed.logo,
             "title": feed.title,
             "description": feed.description,
@@ -324,45 +323,6 @@ class RssFeedCategoryRepository:
             "is_delete": category.is_delete
         }
 
-
-class RssFeedCollectionRepository:
-    """RSS Feed集合存储库"""
-
-    def __init__(self, db_session: Session):
-        """初始化存储库
-        
-        Args:
-            db_session: 数据库会话
-        """
-        self.db = db_session
-
-    def get_all_collections(self) -> List[Dict[str, Any]]:
-        """获取所有集合
-        
-        Returns:
-            所有集合列表
-        """
-        try:
-            collections = self.db.query(RssFeedCollection).all()
-            return [self._collection_to_dict(collection) for collection in collections]
-        except SQLAlchemyError as e:
-            logger.error(f"获取所有集合失败: {str(e)}")
-            return []
-
-    def _collection_to_dict(self, collection: RssFeedCollection) -> Dict[str, Any]:
-        """将集合对象转换为字典
-        
-        Args:
-            collection: 集合对象
-            
-        Returns:
-            集合字典
-        """
-        return {
-            "id": collection.id,
-            "name": collection.name,
-            "is_delete": collection.is_delete
-        }
 
 
 class RssFeedArticleRepository:
