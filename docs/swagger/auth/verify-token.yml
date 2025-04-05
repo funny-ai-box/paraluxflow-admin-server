@@ -1,0 +1,38 @@
+summary: 验证JWT令牌
+description: 验证JWT令牌的有效性
+tags:
+  - 认证
+parameters:
+  - name: body
+    in: body
+    required: true
+    schema:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: JWT令牌
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+responses:
+  200:
+    description: 验证结果
+    schema:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: "令牌有效"
+        data:
+          type: object
+          properties:
+            valid:
+              type: boolean
+              example: true
+            payload:
+              type: object
+              description: 令牌中的数据(仅当valid为true时)

@@ -1,0 +1,51 @@
+summary: 生成摘要
+description: 生成文章摘要
+tags:
+  - 摘要
+parameters:
+  - name: body
+    in: body
+    required: true
+    schema:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          description: 日期，不提供则使用前一天
+          example: "2023-01-01"
+        rule_id:
+          type: string
+          description: 规则ID，不提供则使用默认规则
+        digest_type:
+          type: string
+          description: 摘要类型，默认为daily
+          enum: [daily, weekly, custom]
+          default: daily
+responses:
+  200:
+    description: 生成摘要成功
+    schema:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: "操作成功"
+        data:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "摘要生成成功"
+            digest_id:
+              type: string
+              example: "a1b2c3d4e5f6"
+            title:
+              type: string
+              example: "2023-01-01阅读摘要"
+            article_count:
+              type: integer
+              example: 10

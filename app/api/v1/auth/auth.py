@@ -1,4 +1,5 @@
 """认证API接口"""
+from app.utils.swagger_utils import document_api
 from flask import Blueprint, request, g, current_app
 from app.core.responses import success_response
 from app.core.exceptions import ValidationException, AuthenticationException
@@ -10,6 +11,7 @@ from app.infrastructure.database.session import get_db_session
 auth_bp = Blueprint("auth", __name__)
 
 @auth_bp.route("/public_key", methods=["GET"])
+
 def get_public_key():
     """获取RSA公钥"""
     # 从应用配置中获取公钥
@@ -57,6 +59,7 @@ def register():
     return success_response(result, "注册成功")
  
 @auth_bp.route("/login", methods=["POST"])
+@document_api('auth/login.yml')
 def login():
     """手机号密码登录"""
     # 验证请求数据

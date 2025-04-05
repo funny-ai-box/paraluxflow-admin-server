@@ -2,6 +2,7 @@ from flask import Flask
 from app.extensions import db, migrate, cors, jwt
 from app.config import AppConfig as Config
 from app.utils.rsa_util import init_rsa_keys
+from flasgger import Swagger
 
 def create_app(config_class=Config):
     """创建Flask应用实例"""
@@ -9,12 +10,10 @@ def create_app(config_class=Config):
     app.config.from_object(config_class)
     app.config.from_pyfile('config.py', silent=True)
 
-
     # 初始化扩展
     register_extensions(app)
     
     # 初始化RSA密钥
-
     init_rsa_keys(app)
     
     # 注册蓝图
@@ -25,6 +24,52 @@ def create_app(config_class=Config):
     
     # 注册命令
     register_commands(app)
+    
+    # 初始化Swagger
+    # Swagger配置
+    app.config['SWAGGER'] = {
+        'title': 'IMP API',
+        'description': 'Intelligent Middleware Platform API Documentation',
+        'version': '1.0.0',
+        'uiversion': 3,
+        'doc_dir': './docs/swagger/',
+        'termsOfService': '',
+        'hide_top_bar': False,
+        'specs': [
+            {
+                'endpoint': 'apispec',
+                'route': '/apispec.json',
+                'rule_filter': lambda rule: True,  # 所有接口
+                'model_filter': lambda tag: True,  # 所有模型
+            },
+            {
+                'endpoint': 'auth_apispec',
+                'route': '/auth/apispec.json',
+                'rule_filter': lambda rule: rule.endpoint.startswith('auth'),
+                'model_filter': lambda tag: True,
+            },
+            {
+                'endpoint': 'rss_apispec',
+                'route': '/rss/apispec.json',
+                'rule_filter': lambda rule: rule.endpoint.startswith('rss'),
+                'model_filter': lambda tag: True,
+            },
+            {
+                'endpoint': 'digest_apispec',
+                'route': '/digest/apispec.json',
+                'rule_filter': lambda rule: rule.endpoint.startswith('digest'),
+                'model_filter': lambda tag: True,
+            },
+            {
+                'endpoint': 'llm_apispec',
+                'route': '/llm/apispec.json',
+                'rule_filter': lambda rule: rule.endpoint.startswith('llm'),
+                'model_filter': lambda tag: True,
+            }
+        ],
+        'specs_route': '/api/docs/'
+    }
+    Swagger(app)
     
     return app
 

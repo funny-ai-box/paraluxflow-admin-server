@@ -1,0 +1,29 @@
+summary: Hello World示例
+description: 获取Hello World消息
+tags:
+  - 示例
+parameters:
+  - name: name
+    in: query
+    type: string
+    description: 名称
+    required: false
+    default: World
+responses:
+  200:
+    description: 成功
+    schema:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: "操作成功"
+        data:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "Hello, World!"

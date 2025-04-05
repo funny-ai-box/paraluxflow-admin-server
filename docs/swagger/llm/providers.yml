@@ -1,0 +1,41 @@
+summary: 获取AI提供商列表
+description: 获取所有LLM提供商
+tags:
+  - LLM
+responses:
+  200:
+    description: 获取提供商列表成功
+    schema:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: "操作成功"
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+                example: "OpenAI"
+              provider_type:
+                type: string
+                example: "openai"
+              description:
+                type: string
+              api_key:
+                type: string
+                example: "********"
+              api_base_url:
+                type: string
+              default_model:
+                type: string
+                example: "gpt-4o"
+              is_active:
+                type: boolean
