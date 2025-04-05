@@ -1,67 +1,26 @@
-"""RSS Feed爬取脚本API控制器"""
-import ast
-import re
-import threading
+# app/api/v1/rss/script.py
+"""RSS爬取脚本API控制器"""
 import logging
-from datetime import datetime
-
 from flask import Blueprint, request, g
-from bs4 import BeautifulSoup
 
 from app.api.middleware.auth import auth_required
 from app.core.responses import success_response
-from app.core.exceptions import ValidationException
 from app.infrastructure.database.session import get_db_session
-from app.infrastructure.database.repositories.rss_repository import (
-    RssFeedRepository,
-    
-)
-
-from app.domains.feed.services.feed_service import FeedService
 from app.infrastructure.database.repositories.rss_script_repository import RssFeedCrawlScriptRepository
-    
-    
+from app.domains.rss.services.script_service import ScriptService
 
 logger = logging.getLogger(__name__)
 
 # 创建蓝图
 script_bp = Blueprint("script", __name__)
 
-
-def timeout(limit):
-    """函数执行超时装饰器
-    
-    Args:
-        limit: 超时时间(秒)
-    """
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            res = [
-                Exception(f"函数 [{func.__name__}] 执行超时 [{limit} 秒]!")
-            ]
-
-            def new_func():
-                try:
-                    res[0] = func(*args, **kwargs)
-                except Exception as e:
-                    res[0] = e
-
-            t = threading.Thread(target=new_func)
-            t.daemon = True
-            t.start()
-            t.join(limit)
-            if isinstance(res[0], BaseException):
-                raise res[0]
-            return res[0]
-
-        return wrapper
-    return decorator
-
-
 @script_bp.route("/list", methods=["GET"])
 @auth_required
 def get_feed_scripts():
     """获取Feed的爬取脚本列表
+    
+    查询参数:
+    - feed_id: Feed ID
     
     Returns:
         脚本列表
@@ -76,108 +35,60 @@ def get_feed_scripts():
         db_session = get_db_session()
         script_repo = RssFeedCrawlScriptRepository(db_session)
         
+        # 创建服务
+        script_service = ScriptService(script_repo)
+        
         # 获取脚本列表
-        err, scripts = script_repo.get_feed_scripts(feed_id)
-        if err:
-            return success_response(None, err, 60001)
+        scripts = script_service.get_scripts(feed_id)
         
         return success_response(scripts)
     except Exception as e:
-        logger.error(f"获取爬取脚本失败: {str(e)}")
-        return success_response(None, f"获取爬取脚本失败: {str(e)}", 60001)
+        logger.error(f"获取爬取脚本列表失败: {str(e)}")
+        return success_response(None, f"获取爬取脚本列表失败: {str(e)}", 60001)
 
-
-
-
-
-@script_bp.route("/test", methods=["POST"])
+@script_bp.route("/detail", methods=["GET"])
 @auth_required
-def test_script():
-    """测试爬取脚本
+def get_script_detail():
+    """获取脚本详情
+    
+    查询参数:
+    - script_id: 脚本ID
     
     Returns:
-        测试结果
+        脚本详情
     """
     try:
-        # 获取请求数据
-        data = request.get_json()
-        if not data:
-            return success_response(None, "未提供数据", 60001)
-        
-        feed_id = data.get("feed_id")
-        if not feed_id:
-            return success_response(None, "缺少feed_id参数", 60001)
-        
-        html = data.get("html")
-        if not html:
-            return success_response(None, "缺少html参数", 60001)
+        # 获取脚本ID
+        script_id = request.args.get("script_id", type=int)
+        if not script_id:
+            return success_response(None, "缺少script_id参数", 60001)
         
         # 创建会话和存储库
         db_session = get_db_session()
         script_repo = RssFeedCrawlScriptRepository(db_session)
         
-        # 获取最新脚本
-        err, result = script_repo.get_newest_script(feed_id)
-        if err:
-            return success_response(None, err, 60005)
+        # 创建服务
+        script_service = ScriptService(script_repo)
         
-        script = result["script"]
+        # 获取脚本详情
+        script = script_service.get_script(script_id)
         
-        try:
-            # 解析AST树，确保没有危险语法
-            ast.parse(script)
-        except SyntaxError as e:
-            return success_response(None, f"脚本语法错误: {str(e)}", 60005)
-        
-        # 受限执行环境
-        local_vars = {}
-        allowed_builtins = {
-            "print": print,
-            "range": range,
-            "len": len,
-            "int": int,
-            "str": str,
-            "__import__": __import__,
-        }
-        global_vars = {
-            "__builtins__": allowed_builtins,
-            "BeautifulSoup": BeautifulSoup,
-            "re": re,
-        }
-        
-        # 执行代码
-        try:
-            exec(script, global_vars, local_vars)
-        except Exception as e:
-            logger.error(f"执行脚本失败: {str(e)}")
-            return success_response(None, f"执行脚本失败: {str(e)}", 60005)
-        
-        # 调用函数获取结果
-        if "process_data" in local_vars:
-            try:
-                html_content, text_content = timeout(5)(local_vars["process_data"])(html)
-                
-                html_content = str(html_content)
-                text_content = str(text_content)
-                
-                return success_response({
-                    "html_content": html_content,
-                    "text_content": text_content
-                })
-            except Exception as e:
-                logger.error(f"执行process_data函数失败: {str(e)}")
-                return success_response(None, f"执行脚本处理函数失败: {str(e)}", 60001)
-        else:
-            return success_response(None, "脚本中未找到process_data函数", 60001)
+        return success_response(script)
     except Exception as e:
-        logger.error(f"测试爬取脚本失败: {str(e)}")
-        return success_response(None, f"测试爬取脚本失败: {str(e)}", 60001)
-
+        logger.error(f"获取脚本详情失败: {str(e)}")
+        return success_response(None, f"获取脚本详情失败: {str(e)}", 60001)
 
 @script_bp.route("/add", methods=["POST"])
 @auth_required
 def add_script():
     """添加爬取脚本
+    
+    请求体:
+    {
+        "feed_id": "Feed ID",
+        "script": "脚本内容",
+        "is_published": false  # 可选，是否发布
+    }
     
     Returns:
         添加结果
@@ -188,35 +99,72 @@ def add_script():
         if not data:
             return success_response(None, "未提供数据", 60001)
         
-        feed_id = data.get("feed_id")
-        if not feed_id:
-            return success_response(None, "缺少feed_id参数", 60001)
+        # 创建会话和存储库
+        db_session = get_db_session()
+        script_repo = RssFeedCrawlScriptRepository(db_session)
         
-        script = data.get("script")
-        if not script:
-            return success_response(None, "缺少script参数", 60001)
+        # 创建服务
+        script_service = ScriptService(script_repo)
         
-        is_published = data.get("is_published", False)
+        # 添加脚本
+        script = script_service.add_script(data)
+        
+        return success_response(script, "添加脚本成功")
+    except Exception as e:
+        logger.error(f"添加爬取脚本失败: {str(e)}")
+        return success_response(None, f"添加爬取脚本失败: {str(e)}", 60001)
+
+@script_bp.route("/update", methods=["POST"])
+@auth_required
+def update_script():
+    """更新爬取脚本
+    
+    请求体:
+    {
+        "script_id": 1,
+        "script": "更新的脚本内容",
+        "is_published": true  # 可选
+    }
+    
+    Returns:
+        更新结果
+    """
+    try:
+        # 获取请求数据
+        data = request.get_json()
+        if not data:
+            return success_response(None, "未提供数据", 60001)
+        
+        # 检查必需参数
+        if "script_id" not in data:
+            return success_response(None, "缺少script_id参数", 60001)
+        
+        script_id = data.pop("script_id")
         
         # 创建会话和存储库
         db_session = get_db_session()
         script_repo = RssFeedCrawlScriptRepository(db_session)
         
-        # 创建脚本
-        err, result = script_repo.create_script(feed_id, script, is_published)
-        if err:
-            return success_response(None, err, 60001)
+        # 创建服务
+        script_service = ScriptService(script_repo)
         
-        return success_response(result, "添加脚本成功")
+        # 更新脚本
+        script = script_service.update_script(script_id, data)
+        
+        return success_response(script, "更新脚本成功")
     except Exception as e:
-        logger.error(f"添加爬取脚本失败: {str(e)}")
-        return success_response(None, f"添加爬取脚本失败: {str(e)}", 60001)
-
+        logger.error(f"更新爬取脚本失败: {str(e)}")
+        return success_response(None, f"更新爬取脚本失败: {str(e)}", 60001)
 
 @script_bp.route("/publish", methods=["POST"])
 @auth_required
 def publish_script():
     """发布爬取脚本
+    
+    请求体:
+    {
+        "feed_id": "Feed ID"
+    }
     
     Returns:
         发布结果
@@ -235,12 +183,68 @@ def publish_script():
         db_session = get_db_session()
         script_repo = RssFeedCrawlScriptRepository(db_session)
         
-        # 发布脚本
-        err, result = script_repo.publish_script(feed_id)
-        if err:
-            return success_response(None, err, 60001)
+        # 创建服务
+        script_service = ScriptService(script_repo)
         
-        return success_response(result, "发布脚本成功")
+        # 发布脚本
+        script = script_service.publish_script(feed_id)
+        
+        return success_response(script, "发布脚本成功")
     except Exception as e:
         logger.error(f"发布爬取脚本失败: {str(e)}")
         return success_response(None, f"发布爬取脚本失败: {str(e)}", 60001)
+
+@script_bp.route("/test", methods=["POST"])
+@auth_required
+def test_script():
+    """测试爬取脚本
+    
+    请求体:
+    {
+        "feed_id": "Feed ID",  # 可选，使用已有脚本
+        "script": "脚本内容",  # 可选，提供新脚本
+        "html": "HTML内容"    # 必需，待处理的HTML
+    }
+    
+    Returns:
+        测试结果
+    """
+    try:
+        # 获取请求数据
+        data = request.get_json()
+        if not data:
+            return success_response(None, "未提供数据", 60001)
+        
+        html = data.get("html")
+        if not html:
+            return success_response(None, "缺少html参数", 60001)
+        
+        # 创建会话和存储库
+        db_session = get_db_session()
+        script_repo = RssFeedCrawlScriptRepository(db_session)
+        
+        # 创建服务
+        script_service = ScriptService(script_repo)
+        
+        # 确定使用的脚本内容
+        script_content = None
+        if "script" in data:
+            # 使用提供的脚本
+            script_content = data["script"]
+        elif "feed_id" in data:
+            # 获取Feed的最新脚本
+            feed_id = data["feed_id"]
+            scripts = script_service.get_scripts(feed_id)
+            if scripts:
+                script_content = scripts[0]["script"]
+        
+        if not script_content:
+            return success_response(None, "未提供脚本内容且未找到Feed对应的脚本", 60001)
+        
+        # 测试脚本
+        result = script_service.test_script(script_content, html)
+        
+        return success_response(result)
+    except Exception as e:
+        logger.error(f"测试爬取脚本失败: {str(e)}")
+        return success_response(None, f"测试爬取脚本失败: {str(e)}", 60001)
