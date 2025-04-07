@@ -5,9 +5,7 @@ import os
 import socket
 import uuid
 from app.utils.swagger_helper import api_doc
-from flask import Blueprint, request, g
-from flasgger import swag_from
-
+from flask import Blueprint, request, g, current_app
 from app.api.middleware.app_key_auth import app_key_required
 from app.core.responses import success_response
 from app.infrastructure.database.session import get_db_session
@@ -22,13 +20,10 @@ logger = logging.getLogger(__name__)
 # 创建蓝图
 crawler_bp = Blueprint("crawler", __name__)
 
-# Swagger文档位置
-SWAGGER_DOC = 'crawler.yml'
 
 @crawler_bp.route("/pending_articles", methods=["GET"])
 @app_key_required
-@api_doc(SWAGGER_DOC)
-def get_pending_articles():
+def pending_articles():
     """获取待抓取的文章列表"""
     try:
         # 获取请求参数
@@ -57,7 +52,6 @@ def get_pending_articles():
 
 @crawler_bp.route("/claim_article", methods=["POST"])
 @app_key_required
-@api_doc(SWAGGER_DOC)
 def claim_article():
     """认领(锁定)文章进行抓取"""
     try:
@@ -91,7 +85,6 @@ def claim_article():
 
 @crawler_bp.route("/submit_result", methods=["POST"])
 @app_key_required
-@api_doc(SWAGGER_DOC)
 def submit_crawl_result():
     """提交抓取结果"""
     try:
@@ -131,7 +124,6 @@ def submit_crawl_result():
 
 @crawler_bp.route("/logs", methods=["GET"])
 @app_key_required
-@api_doc(SWAGGER_DOC)
 def get_crawl_logs():
     """获取抓取日志"""
     try:
@@ -188,7 +180,6 @@ def get_crawl_logs():
 
 @crawler_bp.route("/stats", methods=["GET"])
 @app_key_required
-@api_doc(SWAGGER_DOC)
 def get_crawler_stats():
     """获取爬虫统计信息"""
     try:
@@ -215,7 +206,6 @@ def get_crawler_stats():
 
 @crawler_bp.route("/reset_batch", methods=["POST"])
 @app_key_required
-@api_doc(SWAGGER_DOC)
 def reset_batch():
     """重置批次状态"""
     try:

@@ -4,6 +4,9 @@ from app.extensions import db, migrate, cors, jwt
 from app.config import AppConfig as Config
 from app.utils.rsa_util import init_rsa_keys
 from flasgger import Swagger
+import logging
+
+logger = logging.getLogger(__name__)
 
 def create_app(config_class=Config):
     """创建Flask应用实例"""
@@ -25,40 +28,7 @@ def create_app(config_class=Config):
     
     # 注册命令
     register_commands(app)
-    
-    # 初始化Swagger
-
-    base_dir = os.getcwd()
-    swagger_dir = os.path.join(base_dir, 'docs', 'swagger')
-    print(f"Swagger directory: {swagger_dir}")
-    print(f"当前工作目录: {os.getcwd()}")
-    print(f"当前文件: {__file__}")
-    
-    # 确保swagger目录存在
-    os.makedirs(swagger_dir, exist_ok=True)
-    
-    app.config['SWAGGER'] = {
-        'title': 'IMP API',
-        'description': 'Intelligent Middleware Platform API Documentation',
-        'version': '1.0.0',
-        'uiversion': 3,
-        'doc_dir': swagger_dir,
-        'termsOfService': '',
-        'hide_top_bar': False,
-        'openapi': '3.0.0',
-        'specs': [
-            {
-                'endpoint': 'apispec',
-                'route': '/apispec.json',
-                'rule_filter': lambda rule: True,  # 所有接口
-                'model_filter': lambda tag: True,  # 所有模型
-            }
-        ],
-        'specs_route': '/api/docs/'
-    }
-    Swagger(app)
-    
-
+   
     return app
 
 def register_extensions(app):
