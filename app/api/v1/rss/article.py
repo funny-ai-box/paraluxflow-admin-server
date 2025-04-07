@@ -1,7 +1,7 @@
 # app/api/v1/rss/article.py
 """RSS文章API控制器"""
 import logging
-from app.utils.swagger_utils import document_api
+
 from flask import Blueprint, request, Response
 from urllib.parse import unquote
 

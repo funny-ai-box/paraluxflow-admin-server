@@ -3,7 +3,7 @@
 import logging
 import socket
 import uuid
-from app.utils.swagger_utils import document_api
+import os
 from flask import Blueprint, request, g
 from flasgger import swag_from
 
@@ -21,18 +21,15 @@ logger = logging.getLogger(__name__)
 # 创建蓝图
 crawler_bp = Blueprint("crawler", __name__)
 
+# 获取Swagger文档路径
+SWAGGER_DOC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 
+                          'docs', 'swagger', 'crawler.yml')
+
 @crawler_bp.route("/pending_articles", methods=["GET"])
-@document_api('crawler.yml', "/pending_articles")
+@swag_from(SWAGGER_DOC, endpoint='get_pending_articles')
 @app_key_required
 def get_pending_articles():
-    """获取待抓取的文章列表
-    
-    查询参数:
-    - limit: 获取数量，默认10
-    
-    Returns:
-        待抓取文章列表
-    """
+    """获取待抓取的文章列表"""
     try:
         # 获取请求参数
         limit = request.args.get("limit", 10, type=int)
@@ -59,10 +56,10 @@ def get_pending_articles():
         return success_response(None, f"获取待抓取文章失败: {str(e)}", 60001)
 
 @crawler_bp.route("/claim_article", methods=["POST"])
-@document_api('crawler.yml', "/claim_article")
+@swag_from(SWAGGER_DOC, endpoint='claim_article')
 @app_key_required
 def claim_article():
-    #认领(锁定)文章进行抓取
+    """认领(锁定)文章进行抓取"""
     try:
         # 获取请求数据
         data = request.get_json()
@@ -93,7 +90,7 @@ def claim_article():
         return success_response(None, f"认领文章失败: {str(e)}", 60001)
 
 @crawler_bp.route("/submit_result", methods=["POST"])
-@document_api('crawler.yml', "/submit_result")
+@swag_from(SWAGGER_DOC, endpoint='submit_crawl_result')
 @app_key_required
 def submit_crawl_result():
     """提交抓取结果"""
@@ -132,9 +129,8 @@ def submit_crawl_result():
         logger.error(f"提交抓取结果失败: {str(e)}")
         return success_response(None, f"提交抓取结果失败: {str(e)}", 60001)
 
-#获取抓取日志
 @crawler_bp.route("/logs", methods=["GET"])
-@document_api('crawler.yml', "/logs")
+@swag_from(SWAGGER_DOC, endpoint='get_crawl_logs')
 @app_key_required
 def get_crawl_logs():
     """获取抓取日志"""
@@ -191,12 +187,10 @@ def get_crawl_logs():
         return success_response(None, f"获取抓取日志失败: {str(e)}", 60001)
 
 @crawler_bp.route("/stats", methods=["GET"])
-@document_api('crawler.yml', "/stats")
+@swag_from(SWAGGER_DOC, endpoint='get_crawler_stats')
 @app_key_required
 def get_crawler_stats():
-    """获取爬虫统计信息
-
-    """
+    """获取爬虫统计信息"""
     try:
         # 获取时间范围
         time_range = request.args.get("time_range", "today")
@@ -220,12 +214,10 @@ def get_crawler_stats():
         return success_response(None, f"获取爬虫统计信息失败: {str(e)}", 60001)
 
 @crawler_bp.route("/reset_batch", methods=["POST"])
-@document_api('crawler.yml', "/reset_batch")
+@swag_from(SWAGGER_DOC, endpoint='reset_batch')
 @app_key_required
 def reset_batch():
-    """重置批次状态
-
-    """
+    """重置批次状态"""
     try:
         # 获取请求数据
         data = request.get_json()

@@ -5,15 +5,18 @@ info:
   version: 1.0.0
 tags:
   - name: 爬虫操作
+    description: RSS爬虫操作接口
+
 paths:
-  /pending_articles:
+  /api/v1/rss/crawler/pending_articles:
     get:
+      operationId: get_pending_articles
       summary: 获取待抓取的文章列表
       description: 获取待抓取的RSS文章列表
       tags:
-        - 爬虫
+        - 爬虫操作
       security:
-        - appKeyAuth: []
+        - AppKey: []
       parameters:
         - name: limit
           in: query
@@ -23,7 +26,7 @@ paths:
             type: integer
             default: 10
       responses:
-        200:
+        '200':
           description: 获取文章列表成功
           content:
             application/json:
@@ -45,8 +48,8 @@ paths:
                           type: integer
                           example: 123
                         feed_id:
-                          type: string
-                          example: "a1b2c3d4e5f6"
+                          type: integer
+                          example: 45
                         feed_title:
                           type: string
                           example: "科技日报"
@@ -70,14 +73,16 @@ paths:
                           type: string
                           format: date-time
                           example: "2023-01-01T12:00:00"
-  /claim_article:
+
+  /api/v1/rss/crawler/claim_article:
     post:
+      operationId: claim_article
       summary: 认领文章进行抓取
       description: 爬虫认领文章进行抓取处理
       tags:
-        - 爬虫
+        - 爬虫操作
       security:
-        - appKeyAuth: []
+        - AppKey: []
       requestBody:
         required: true
         content:
@@ -92,7 +97,7 @@ paths:
                   description: 文章ID
                   example: 123
       responses:
-        200:
+        '200':
           description: 认领文章成功
           content:
             application/json:
@@ -121,14 +126,16 @@ paths:
                       crawler_id:
                         type: string
                         example: "crawler-agent-1"
-  /submit_result:
+
+  /api/v1/rss/crawler/submit_result:
     post:
+      operationId: submit_crawl_result
       summary: 提交抓取结果
       description: 提交文章抓取结果
       tags:
-        - 爬虫
+        - 爬虫操作
       security:
-        - appKeyAuth: []
+        - AppKey: []
       requestBody:
         required: true
         content:
@@ -188,7 +195,7 @@ paths:
                   description: 图片数量
                   example: 5
       responses:
-        200:
+        '200':
           description: 提交抓取结果成功
           content:
             application/json:
@@ -216,14 +223,16 @@ paths:
                       content_id:
                         type: string
                         example: "c1d2e3f4"
-  /logs:
+
+  /api/v1/rss/crawler/logs:
     get:
+      operationId: get_crawl_logs
       summary: 获取抓取日志
       description: 获取文章抓取日志
       tags:
-        - 爬虫
+        - 爬虫操作
       security:
-        - appKeyAuth: []
+        - AppKey: []
       parameters:
         - name: page
           in: query
@@ -278,7 +287,7 @@ paths:
             type: string
             format: date
       responses:
-        200:
+        '200':
           description: 获取抓取日志成功
           content:
             application/json:
@@ -345,14 +354,16 @@ paths:
                           last_page:
                             type: integer
                             example: 5
-  /stats:
+
+  /api/v1/rss/crawler/stats:
     get:
+      operationId: get_crawler_stats
       summary: 获取爬虫统计信息
       description: 获取爬虫工作统计数据
       tags:
-        - 爬虫
+        - 爬虫操作
       security:
-        - appKeyAuth: []
+        - AppKey: []
       parameters:
         - name: time_range
           in: query
@@ -363,7 +374,7 @@ paths:
             enum: [today, yesterday, week, month, all]
             default: today
       responses:
-        200:
+        '200':
           description: 获取爬虫统计信息成功
           content:
             application/json:
@@ -411,14 +422,16 @@ paths:
                             success_rate:
                               type: number
                               example: 96.0
-  /reset_batch:
+
+  /api/v1/rss/crawler/reset_batch:
     post:
+      operationId: reset_batch
       summary: 重置批次状态
       description: 重置指定批次的处理状态
       tags:
-        - 爬虫
+        - 爬虫操作
       security:
-        - appKeyAuth: []
+        - AppKey: []
       requestBody:
         required: true
         content:
@@ -433,7 +446,7 @@ paths:
                   description: 批次ID
                   example: "b1a2c3-d4e5f6"
       responses:
-        200:
+        '200':
           description: 重置批次状态成功
           content:
             application/json:
@@ -455,9 +468,11 @@ paths:
                       reset_count:
                         type: integer
                         example: 5
+
 components:
   securitySchemes:
-    appKeyAuth:
+    AppKey:
       type: apiKey
       in: header
       name: X-App-Key
+      description: 应用密钥
