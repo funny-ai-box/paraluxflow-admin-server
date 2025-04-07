@@ -21,12 +21,10 @@ logger = logging.getLogger(__name__)
 # 创建蓝图
 crawler_bp = Blueprint("crawler", __name__)
 
-# 获取Swagger文档路径
-SWAGGER_DOC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 
-                          'docs', 'swagger', 'crawler.yml')
+
 
 @crawler_bp.route("/pending_articles", methods=["GET"])
-@swag_from(SWAGGER_DOC, endpoint='get_pending_articles')
+@swag_from('crawler.yml', endpoint='get_pending_articles')
 @app_key_required
 def get_pending_articles():
     """获取待抓取的文章列表"""
@@ -56,7 +54,7 @@ def get_pending_articles():
         return success_response(None, f"获取待抓取文章失败: {str(e)}", 60001)
 
 @crawler_bp.route("/claim_article", methods=["POST"])
-@swag_from(SWAGGER_DOC, endpoint='claim_article')
+@swag_from('crawler.yml', endpoint='claim_article')
 @app_key_required
 def claim_article():
     """认领(锁定)文章进行抓取"""
@@ -90,7 +88,7 @@ def claim_article():
         return success_response(None, f"认领文章失败: {str(e)}", 60001)
 
 @crawler_bp.route("/submit_result", methods=["POST"])
-@swag_from(SWAGGER_DOC, endpoint='submit_crawl_result')
+@swag_from('crawler.yml', endpoint='submit_crawl_result')
 @app_key_required
 def submit_crawl_result():
     """提交抓取结果"""
@@ -130,7 +128,7 @@ def submit_crawl_result():
         return success_response(None, f"提交抓取结果失败: {str(e)}", 60001)
 
 @crawler_bp.route("/logs", methods=["GET"])
-@swag_from(SWAGGER_DOC, endpoint='get_crawl_logs')
+@swag_from('crawler.yml', endpoint='get_crawl_logs')
 @app_key_required
 def get_crawl_logs():
     """获取抓取日志"""
@@ -187,7 +185,7 @@ def get_crawl_logs():
         return success_response(None, f"获取抓取日志失败: {str(e)}", 60001)
 
 @crawler_bp.route("/stats", methods=["GET"])
-@swag_from(SWAGGER_DOC, endpoint='get_crawler_stats')
+@swag_from('crawler.yml', endpoint='get_crawler_stats')
 @app_key_required
 def get_crawler_stats():
     """获取爬虫统计信息"""
@@ -214,7 +212,7 @@ def get_crawler_stats():
         return success_response(None, f"获取爬虫统计信息失败: {str(e)}", 60001)
 
 @crawler_bp.route("/reset_batch", methods=["POST"])
-@swag_from(SWAGGER_DOC, endpoint='reset_batch')
+@swag_from('crawler.yml', endpoint='reset_batch')
 @app_key_required
 def reset_batch():
     """重置批次状态"""
