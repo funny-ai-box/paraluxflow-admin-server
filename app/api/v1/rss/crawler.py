@@ -4,6 +4,7 @@ import logging
 import socket
 import uuid
 from flask import Blueprint, request, g
+from flasgger import swag_from
 
 from app.api.middleware.app_key_auth import app_key_required
 from app.core.responses import success_response
@@ -58,16 +59,7 @@ def get_pending_articles():
 @crawler_bp.route("/claim_article", methods=["POST"])
 @app_key_required
 def claim_article():
-    """认领(锁定)文章进行抓取
-    
-    请求体:
-    {
-        "article_id": 1  # 文章ID
-    }
-    
-    Returns:
-        操作结果
-    """
+    #认领(锁定)文章进行抓取
     try:
         # 获取请求数据
         data = request.get_json()
@@ -119,7 +111,7 @@ def submit_crawl_result():
     }
     
     Returns:
-        操作结果
+        抓取结果
     """
     try:
         # 获取请求数据

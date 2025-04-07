@@ -26,7 +26,6 @@ def create_app(config_class=Config):
     register_commands(app)
     
     # 初始化Swagger
-    # Swagger配置
     app.config['SWAGGER'] = {
         'title': 'IMP API',
         'description': 'Intelligent Middleware Platform API Documentation',
@@ -41,30 +40,6 @@ def create_app(config_class=Config):
                 'route': '/apispec.json',
                 'rule_filter': lambda rule: True,  # 所有接口
                 'model_filter': lambda tag: True,  # 所有模型
-            },
-            {
-                'endpoint': 'auth_apispec',
-                'route': '/auth/apispec.json',
-                'rule_filter': lambda rule: rule.endpoint.startswith('auth'),
-                'model_filter': lambda tag: True,
-            },
-            {
-                'endpoint': 'rss_apispec',
-                'route': '/rss/apispec.json',
-                'rule_filter': lambda rule: rule.endpoint.startswith('rss'),
-                'model_filter': lambda tag: True,
-            },
-            {
-                'endpoint': 'digest_apispec',
-                'route': '/digest/apispec.json',
-                'rule_filter': lambda rule: rule.endpoint.startswith('digest'),
-                'model_filter': lambda tag: True,
-            },
-            {
-                'endpoint': 'llm_apispec',
-                'route': '/llm/apispec.json',
-                'rule_filter': lambda rule: rule.endpoint.startswith('llm'),
-                'model_filter': lambda tag: True,
             }
         ],
         'specs_route': '/api/docs/'

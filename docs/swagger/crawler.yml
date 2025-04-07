@@ -1,0 +1,348 @@
+openapi: 3.0.0
+info:
+  title: RSS爬虫API
+  description: RSS爬虫相关的API接口
+  version: 1.0.0
+tags:
+  - name: 爬虫
+    description: RSS爬虫相关操作
+paths:
+  /pending_articles:
+    get:
+      summary: 获取待抓取的文章列表
+      description: 获取待抓取的RSS文章列表
+      tags:
+        - 爬虫
+      security:
+        - appKeyAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: 获取数量，默认10
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        200:
+          description: 获取文章列表成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: "成功"
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 123
+                        feed_id:
+                          type: string
+                          example: "a1b2c3d4e5f6"
+                        feed_title:
+                          type: string
+                          example: "科技日报"
+                        title:
+                          type: string
+                          example: "最新科技发展报道"
+                        link:
+                          type: string
+                          example: "https://example.com/article/123"
+                        published_at:
+                          type: string
+                          format: date-time
+                          example: "2023-01-01T10:00:00"
+                        status:
+                          type: integer
+                          example: 0
+                        priority:
+                          type: integer
+                          example: 1
+                        created_at:
+                          type: string
+                          format: date-time
+                          example: "2023-01-01T12:00:00"
+  /claim_article:
+    post:
+      summary: 认领文章进行抓取
+      description: 爬虫认领文章进行抓取处理
+      tags:
+        - 爬虫
+      security:
+        - appKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - article_id
+              properties:
+                article_id:
+                  type: integer
+                  description: 文章ID
+                  example: 123
+      responses:
+        200:
+          description: 认领文章成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: "成功"
+                  data:
+                    type: object
+                    properties:
+                      article_id:
+                        type: integer
+                        example: 123
+                      locked:
+                        type: boolean
+                        example: true
+                      lock_until:
+                        type: string
+                        format: date-time
+                        example: "2023-01-01T12:10:00"
+                      crawler_id:
+                        type: string
+                        example: "crawler-agent-1"
+  /submit_result:
+    post:
+      summary: 提交抓取结果
+      description: 提交文章抓取结果
+      tags:
+        - 爬虫
+      security:
+        - appKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - article_id
+                - status
+              properties:
+                article_id:
+                  type: integer
+                  description: 文章ID
+                  example: 123
+                batch_id:
+                  type: string
+                  description: 批次ID，不提供则自动生成
+                  example: "b1a2c3-d4e5f6"
+                status:
+                  type: integer
+                  description: 状态：1=成功, 2=失败
+                  example: 1
+                error_message:
+                  type: string
+                  description: 失败信息
+                  example: ""
+                error_type:
+                  type: string
+                  description: 错误类型
+                  example: ""
+                html_content:
+                  type: string
+                  description: 抓取到的HTML内容
+                  example: "<html>...</html>"
+                text_content:
+                  type: string
+                  description: 处理后的文本内容
+                  example: "文章内容..."
+                processing_time:
+                  type: number
+                  description: 处理时间(秒)
+                  example: 1.5
+                request_time:
+                  type: number
+                  description: 请求时间(秒)
+                  example: 0.8
+                http_status:
+                  type: integer
+                  description: HTTP状态码
+                  example: 200
+                memory_usage:
+                  type: integer
+                  description: 内存使用(MB)
+                  example: 150
+                image_count:
+                  type: integer
+                  description: 图片数量
+                  example: 5
+      responses:
+        200:
+          description: 提交抓取结果成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: "成功"
+                  data:
+                    type: object
+                    properties:
+                      article_id:
+                        type: integer
+                        example: 123
+                      batch_id:
+                        type: string
+                        example: "b1a2c3-d4e5f6"
+                      status:
+                        type: integer
+                        example: 1
+                      content_id:
+                        type: string
+                        example: "c1d2e3f4"
+  /logs:
+    get:
+      summary: 获取抓取日志
+      description: 获取文章抓取日志
+      tags:
+        - 爬虫
+      security:
+        - appKeyAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: 页码，默认1
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          description: 每页数量，默认20
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: article_id
+          in: query
+          description: 文章ID
+          required: false
+          schema:
+            type: integer
+        - name: batch_id
+          in: query
+          description: 批次ID
+          required: false
+          schema:
+            type: string
+        - name: crawler_id
+          in: query
+          description: 爬虫ID
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: 状态
+          required: false
+          schema:
+            type: integer
+        - name: start_date
+          in: query
+          description: 开始日期
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          description: 结束日期
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        200:
+          description: 获取抓取日志成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: "成功"
+                  data:
+                    type: object
+                    properties:
+                      logs:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: "l1o2g3"
+                            article_id:
+                              type: integer
+                              example: 123
+                            batch_id:
+                              type: string
+                              example: "b1a2c3-d4e5f6"
+                            crawler_id:
+                              type: string
+                              example: "crawler-agent-1"
+                            status:
+                              type: integer
+                              example: 1
+                            processing_time:
+                              type: number
+                              example: 1.5
+                            request_time:
+                              type: number
+                              example: 0.8
+                            http_status:
+                              type: integer
+                              example: 200
+                            error_message:
+                              type: string
+                              example: ""
+                            created_at:
+                              type: string
+                              format: date-time
+                              example: "2023-01-01T12:05:00"
+                      pagination:
+                        type: object
+                        properties:
+                          total:
+                            type: integer
+                            example: 100
+                          per_page:
+                            type: integer
+                            example: 20
+                          current_page:
+                            type: integer
+                            example: 1
+                          last_page:
+                            type: integer
+                            example: 5

@@ -7,6 +7,7 @@ from urllib.parse import unquote
 from app.api.middleware.auth import auth_required
 from app.core.responses import success_response
 from app.infrastructure.database.session import get_db_session
+from flasgger import swag_from
 from app.infrastructure.database.repositories.rss_feed_repository import RssFeedRepository
 from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
 from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
@@ -20,24 +21,6 @@ article_bp = Blueprint("article", __name__)
 @article_bp.route("/list", methods=["GET"])
 @auth_required
 def get_articles():
-    """获取文章列表
-    
-    查询参数:
-    - page: 页码，默认1
-    - per_page: 每页数量，默认10
-    - id: 文章ID
-    - feed_id: Feed ID
-    - status: 状态
-    - title: 标题关键词
-    - start_date: 开始日期
-    - end_date: 结束日期
-    - is_locked: 是否被锁定(1=是, 0=否)
-    - min_retries: 最小重试次数
-    - max_retries: 最大重试次数
-    
-    Returns:
-        文章列表和分页信息
-    """
     try:
         # 获取分页参数
         page = request.args.get("page", 1, type=int)
@@ -103,14 +86,6 @@ def get_articles():
 @article_bp.route("/detail", methods=["GET"])
 @auth_required
 def get_article_detail():
-    """获取文章详情
-    
-    查询参数:
-    - article_id: 文章ID
-    
-    Returns:
-        文章详情
-    """
     try:
         # 获取文章ID
         article_id = request.args.get("article_id")
@@ -137,16 +112,6 @@ def get_article_detail():
 @article_bp.route("/sync", methods=["POST"])
 @auth_required
 def sync_feed_articles():
-    """同步Feed文章
-    
-    请求体:
-    {
-        "feed_id": "Feed ID"
-    }
-    
-    Returns:
-        同步结果
-    """
     try:
         # 获取请求数据
         data = request.get_json()
@@ -175,16 +140,6 @@ def sync_feed_articles():
 @article_bp.route("/batch_sync", methods=["POST"])
 @auth_required
 def batch_sync_articles():
-    """批量同步多个Feed的文章
-    
-    请求体:
-    {
-        "feed_ids": ["Feed ID 1", "Feed ID 2", ...]
-    }
-    
-    Returns:
-        同步结果
-    """
     try:
         # 获取请求数据
         data = request.get_json()
@@ -213,16 +168,6 @@ def batch_sync_articles():
 @article_bp.route("/reset", methods=["POST"])
 @auth_required
 def reset_failed_article():
-    """重置失败的文章，允许重新抓取
-    
-    请求体:
-    {
-        "article_id": 1
-    }
-    
-    Returns:
-        操作结果
-    """
     try:
         # 获取请求数据
         data = request.get_json()
@@ -252,14 +197,6 @@ def reset_failed_article():
 
 @article_bp.route("/proxy-image", methods=["GET"])
 def proxy_image():
-    """代理获取图片
-    
-    查询参数:
-    - url: 图片URL(URL编码)
-    
-    Returns:
-        图片内容
-    """
     try:
         # 获取并解码图片URL
         image_url = unquote(request.args.get("url", ""))
@@ -296,14 +233,6 @@ def proxy_image():
 @article_bp.route("/get_content_from_url", methods=["GET"])
 @auth_required
 def get_content_from_url():
-    """从URL获取文章内容
-    
-    查询参数:
-    - url: 文章URL
-    
-    Returns:
-        文章内容
-    """
     try:
         # 获取URL
         url = request.args.get("url")

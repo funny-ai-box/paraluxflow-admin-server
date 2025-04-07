@@ -3,33 +3,34 @@ from flask import Blueprint
 
 # 创建API v1主蓝图
 api_v1_bp = Blueprint("api_v1", __name__)
-from app.api.v1.digest.digest import digest_bp
+
 # 导入认证相关蓝图
 from app.api.v1.auth.auth import auth_bp
-# 导入Feed相关蓝图
+# 导入RSS相关蓝图
 from app.api.v1.rss.feed import feed_bp
+from app.api.v1.rss.article import article_bp
+from app.api.v1.rss.script import script_bp
+# 导入摘要相关蓝图
+from app.api.v1.digest.digest import digest_bp
+# 导入LLM相关蓝图
+from app.api.v1.llm.llm import llm_bp
 
+# 注册RSS蓝图组
 rss_bp = Blueprint("rss", __name__)
-# 注册RSS蓝图
 rss_bp.register_blueprint(feed_bp, url_prefix="/feed")
 api_v1_bp.register_blueprint(rss_bp, url_prefix="/rss")
-# 导入文章相关蓝图
-from app.api.v1.rss.article import article_bp
+
 # 注册文章蓝图
 api_v1_bp.register_blueprint(article_bp, url_prefix="/article")
 
-# 导入爬取脚本相关蓝图
-from app.api.v1.rss.script import script_bp
 # 注册爬取脚本蓝图
 api_v1_bp.register_blueprint(script_bp, url_prefix="/script")
 
-# 导入LLM相关蓝图
-from app.api.v1.llm.llm import llm_bp
 # 注册LLM蓝图
 api_v1_bp.register_blueprint(llm_bp, url_prefix="/llm")
 
-
 # 注册认证蓝图
 api_v1_bp.register_blueprint(auth_bp, url_prefix="/auth")
-# 注册Feed蓝图
+
+# 注册摘要蓝图
 api_v1_bp.register_blueprint(digest_bp, url_prefix="/digest")

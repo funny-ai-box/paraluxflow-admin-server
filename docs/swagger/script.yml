@@ -1,0 +1,400 @@
+openapi: 3.0.0
+info:
+  title: RSS爬取脚本API
+  description: RSS爬取脚本相关的API接口
+  version: 1.0.0
+tags:
+  - name: 爬取脚本
+    description: RSS爬取脚本相关操作
+paths:
+  /list:
+    get:
+      summary: 获取Feed的爬取脚本列表
+      description: 获取指定Feed的所有爬取脚本
+      tags:
+        - 爬取脚本
+      security:
+        - jwtAuth: []
+      parameters:
+        - name: feed_id
+          in: query
+          description: Feed ID
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 获取脚本列表成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: "成功"
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 1
+                        feed_id:
+                          type: string
+                          example: "a1b2c3d4e5f6"
+                        feed_title:
+                          type: string
+                          example: "科技日报"
+                        version:
+                          type: integer
+                          example: 1
+                        script:
+                          type: string
+                          example: "function extract(html) { /* 脚本内容 */ }"
+                        is_published:
+                          type: boolean
+                          example: true
+                        created_at:
+                          type: string
+                          format: date-time
+                          example: "2023-01-01T12:00:00"
+                        created_by:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: "u1s2e3r4"
+                            username:
+                              type: string
+                              example: "admin"
+  /detail:
+    get:
+      summary: 获取脚本详情
+      description: 获取特定脚本的详细信息
+      tags:
+        - 爬取脚本
+      security:
+        - jwtAuth: []
+      parameters:
+        - name: script_id
+          in: query
+          description: 脚本ID
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: 获取脚本详情成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: "成功"
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 1
+                      feed_id:
+                        type: string
+                        example: "a1b2c3d4e5f6"
+                      feed_title:
+                        type: string
+                        example: "科技日报"
+                      version:
+                        type: integer
+                        example: 1
+                      script:
+                        type: string
+                        example: "function extract(html) {\n  // 提取标题\n  const title = document.querySelector('h1').textContent;\n  \n  // 提取内容\n  const content = document.querySelector('.article-content').innerHTML;\n  \n  // 提取时间\n  const time = document.querySelector('.publish-time').textContent;\n  \n  return {\n    title,\n    content,\n    publish_time: time\n  };\n}"
+                      is_published:
+                        type: boolean
+                        example: true
+                      created_at:
+                        type: string
+                        format: date-time
+                        example: "2023-01-01T12:00:00"
+                      created_by:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: "u1s2e3r4"
+                          username:
+                            type: string
+                            example: "admin"
+                      updated_at:
+                        type: string
+                        format: date-time
+                        example: "2023-01-01T14:00:00"
+                      test_results:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            test_id:
+                              type: string
+                              example: "t1e2s3t4"
+                            result:
+                              type: boolean
+                              example: true
+                            test_date:
+                              type: string
+                              format: date-time
+                              example: "2023-01-01T13:00:00"
+  /add:
+    post:
+      summary: 添加爬取脚本
+      description: 为Feed添加新的爬取脚本
+      tags:
+        - 爬取脚本
+      security:
+        - jwtAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - feed_id
+                - script
+              properties:
+                feed_id:
+                  type: string
+                  description: Feed ID
+                  example: "a1b2c3d4e5f6"
+                script:
+                  type: string
+                  description: 脚本内容
+                  example: "function extract(html) { /* 脚本内容 */ }"
+                is_published:
+                  type: boolean
+                  description: 是否发布
+                  example: false
+      responses:
+        200:
+          description: 添加脚本成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: "添加脚本成功"
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 1
+                      feed_id:
+                        type: string
+                        example: "a1b2c3d4e5f6"
+                      version:
+                        type: integer
+                        example: 1
+                      script:
+                        type: string
+                        example: "function extract(html) { /* 脚本内容 */ }"
+                      is_published:
+                        type: boolean
+                        example: false
+                      created_at:
+                        type: string
+                        format: date-time
+                        example: "2023-01-01T12:00:00"
+  /update:
+    post:
+      summary: 更新爬取脚本
+      description: 更新现有的爬取脚本
+      tags:
+        - 爬取脚本
+      security:
+        - jwtAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - script_id
+              properties:
+                script_id:
+                  type: integer
+                  description: 脚本ID
+                  example: 1
+                script:
+                  type: string
+                  description: 更新的脚本内容
+                  example: "function extract(html) { /* 更新后的脚本内容 */ }"
+                is_published:
+                  type: boolean
+                  description: 是否发布
+                  example: true
+      responses:
+        200:
+          description: 更新脚本成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: "更新脚本成功"
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 1
+                      feed_id:
+                        type: string
+                        example: "a1b2c3d4e5f6"
+                      version:
+                        type: integer
+                        example: 2
+                      script:
+                        type: string
+                        example: "function extract(html) { /* 更新后的脚本内容 */ }"
+                      is_published:
+                        type: boolean
+                        example: true
+                      updated_at:
+                        type: string
+                        format: date-time
+                        example: "2023-01-01T14:00:00"
+  /publish:
+    post:
+      summary: 发布爬取脚本
+      description: 发布最新版本的爬取脚本
+      tags:
+        - 爬取脚本
+      security:
+        - jwtAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - feed_id
+              properties:
+                feed_id:
+                  type: string
+                  description: Feed ID
+                  example: "a1b2c3d4e5f6"
+      responses:
+        200:
+          description: 发布脚本成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: "发布脚本成功"
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 1
+                      feed_id:
+                        type: string
+                        example: "a1b2c3d4e5f6"
+                      version:
+                        type: integer
+                        example: 2
+                      is_published:
+                        type: boolean
+                        example: true
+                      published_at:
+                        type: string
+                        format: date-time
+                        example: "2023-01-01T14:05:00"
+  /test:
+    post:
+      summary: 测试爬取脚本
+      description: 测试爬取脚本在特定HTML上的执行结果
+      tags:
+        - 爬取脚本
+      security:
+        - jwtAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - html
+              properties:
+                feed_id:
+                  type: string
+                  description: Feed ID，可选，使用已有脚本
+                  example: "a1b2c3d4e5f6"
+                script:
+                  type: string
+                  description: 脚本内容，可选，提供新脚本
+                  example: "function extract(html) { /* 脚本内容 */ }"
+                html:
+                  type: string
+                  description: 待处理的HTML
+                  example: "<html>...</html>"
+      responses:
+        200:
+          description: 测试成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: "成功"
+                  data:
+                    type: object
+                    properties:
+                      result:
+                        type: object
+                        example: {
+                          "title": "文章标题",
+                          "content": "文章内容...",
+                          "publish_time": "2023-01-01 10:00:00"
+                        }
+                      execution_time:
+                        type: number
+                        example: 0.05
+                      error:
+                        type: string
+                        example: null

@@ -1,6 +1,7 @@
 # app/api/v1/rss/agent.py
 """RSS爬虫代理API控制器"""
 import logging
+from app.utils.swagger_utils import document_api
 from flask import Blueprint, request, g
 import socket
 
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 agent_bp = Blueprint("agent", __name__)
 
 @agent_bp.route("/register", methods=["POST"])
+@document_api('agent.yml', path="/register")
 @app_key_required
 def register_agent():
     """注册爬虫代理
@@ -59,6 +61,7 @@ def register_agent():
         return success_response(None, f"注册爬虫代理失败: {str(e)}", 60001)
 
 @agent_bp.route("/heartbeat", methods=["POST"])
+@document_api('agent.yml', path="/heartbeat")
 @app_key_required
 def agent_heartbeat():
     """更新代理心跳
@@ -102,6 +105,7 @@ def agent_heartbeat():
         return success_response(None, f"更新爬虫代理心跳失败: {str(e)}", 60001)
 
 @agent_bp.route("/list", methods=["GET"])
+@document_api('agent.yml', path="/list")
 @auth_required
 def get_agents():
     """获取代理列表
@@ -132,6 +136,7 @@ def get_agents():
         return success_response(None, f"获取爬虫代理列表失败: {str(e)}", 60001)
 
 @agent_bp.route("/detail", methods=["GET"])
+@document_api('agent.yml', path="/detail")
 @auth_required
 def get_agent():
     """获取代理详情
@@ -164,6 +169,7 @@ def get_agent():
         return success_response(None, f"获取爬虫代理详情失败: {str(e)}", 60001)
 
 @agent_bp.route("/update_status", methods=["POST"])
+@document_api('agent.yml', path="/update_status")
 @auth_required
 def update_agent_status():
     """更新代理状态

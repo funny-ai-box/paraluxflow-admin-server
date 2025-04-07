@@ -1,0 +1,149 @@
+paths:
+  /providers:
+    get:
+      summary: 获取所有LLM提供商
+      tags:
+        - LLM
+      security:
+        - BearerAuth: []
+      responses:
+        200:
+          description: 提供商列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    name:
+                      type: string
+                    provider_type:
+                      type: string
+                    # ...其他字段...
+  /provider/detail:
+    get:
+      summary: 获取LLM提供商详情
+      tags:
+        - LLM
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: provider_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: 提供商详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  name:
+                    type: string
+                  provider_type:
+                    type: string
+                  # ...其他字段...
+  /provider/models:
+    get:
+      summary: 获取指定提供商支持的模型
+      tags:
+        - LLM
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: provider_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: 模型列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    name:
+                      type: string
+                    # ...其他字段...
+  /provider/update_config:
+    post:
+      summary: 更新LLM提供商配置信息
+      tags:
+        - LLM
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: integer
+                api_key:
+                  type: string
+                api_secret:
+                  type: string
+                # ...其他字段...
+      responses:
+        200:
+          description: 更新结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+  /provider/test:
+    post:
+      summary: 测试LLM提供商连接
+      tags:
+        - LLM
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: integer
+                api_key:
+                  type: string
+                # ...其他字段...
+      responses:
+        200:
+          description: 测试结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  provider:
+                    type: string
+                  models:
+                    type: array
+                    items:
+                      type: string

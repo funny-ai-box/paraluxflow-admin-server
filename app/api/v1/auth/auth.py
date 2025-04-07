@@ -10,8 +10,10 @@ from app.infrastructure.database.session import get_db_session
 
 auth_bp = Blueprint("auth", __name__)
 
-@auth_bp.route("/public_key", methods=["GET"])
+API_DOC_FILE = 'auth.yml'
 
+@auth_bp.route("/public_key", methods=["GET"])
+@document_api(API_DOC_FILE, path="/public_key")
 def get_public_key():
     """获取RSA公钥"""
     # 从应用配置中获取公钥
@@ -23,6 +25,7 @@ def get_public_key():
     return success_response({"public_key": public_key}, "获取RSA公钥成功")
 
 @auth_bp.route("/register", methods=["POST"])
+@document_api(API_DOC_FILE, path="/register")
 def register():
     """手机号密码注册"""
     # 验证请求数据
@@ -59,7 +62,7 @@ def register():
     return success_response(result, "注册成功")
  
 @auth_bp.route("/login", methods=["POST"])
-@document_api('auth/login.yml')
+@document_api(API_DOC_FILE, path="/login")
 def login():
     """手机号密码登录"""
     # 验证请求数据
@@ -93,25 +96,3 @@ def login():
     )
     
     return success_response(result, "登录成功")
-
-@auth_bp.route("/verify_token", methods=["POST"])
-def verify_token():
-    """验证JWT令牌"""
-    # 验证请求数据
-    data = request.get_json()
-    if not data or "token" not in data:
-        raise ValidationException("缺少必要参数: token")
-    
-    token = data.get("token")
-    
-    # 初始化存储库和服务
-    db_session = get_db_session()
-    auth_repo = AuthRepository(db_session)
-    auth_service = AuthService(auth_repo)
-    
-    # 验证令牌
-    try:
-        payload = auth_service.verify_jwt_token(token)
-        return success_response({"valid": True, "payload": payload}, "令牌有效")
-    except AuthenticationException as e:
-        return success_response({"valid": False, "error": str(e)}, "令牌无效")
