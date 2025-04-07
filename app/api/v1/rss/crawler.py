@@ -3,7 +3,6 @@
 import logging
 import socket
 import uuid
-import os
 from flask import Blueprint, request, g
 from flasgger import swag_from
 
@@ -21,11 +20,38 @@ logger = logging.getLogger(__name__)
 # 创建蓝图
 crawler_bp = Blueprint("crawler", __name__)
 
-
+# Swagger文档位置
+SWAGGER_DOC = 'crawler.yml'
 
 @crawler_bp.route("/pending_articles", methods=["GET"])
-@swag_from('crawler.yml', endpoint='get_pending_articles')
 @app_key_required
+@swag_from({
+    'tags': ['爬虫操作'],
+    'summary': '获取待抓取的文章列表',
+    'description': '获取待抓取的RSS文章列表',
+    'parameters': [
+        {
+            'name': 'limit',
+            'in': 'query',
+            'type': 'integer',
+            'default': 10,
+            'description': '获取数量，默认10'
+        }
+    ],
+    'responses': {
+        200: {
+            'description': '获取文章列表成功',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'code': {'type': 'integer', 'example': 200},
+                    'message': {'type': 'string', 'example': '成功'},
+                    'data': {'type': 'array', 'items': {'type': 'object'}}
+                }
+            }
+        }
+    }
+})
 def get_pending_articles():
     """获取待抓取的文章列表"""
     try:
@@ -54,8 +80,8 @@ def get_pending_articles():
         return success_response(None, f"获取待抓取文章失败: {str(e)}", 60001)
 
 @crawler_bp.route("/claim_article", methods=["POST"])
-@swag_from('crawler.yml', endpoint='claim_article')
 @app_key_required
+@swag_from(SWAGGER_DOC)
 def claim_article():
     """认领(锁定)文章进行抓取"""
     try:
@@ -88,8 +114,8 @@ def claim_article():
         return success_response(None, f"认领文章失败: {str(e)}", 60001)
 
 @crawler_bp.route("/submit_result", methods=["POST"])
-@swag_from('crawler.yml', endpoint='submit_crawl_result')
 @app_key_required
+@swag_from(SWAGGER_DOC)
 def submit_crawl_result():
     """提交抓取结果"""
     try:
@@ -128,8 +154,8 @@ def submit_crawl_result():
         return success_response(None, f"提交抓取结果失败: {str(e)}", 60001)
 
 @crawler_bp.route("/logs", methods=["GET"])
-@swag_from('crawler.yml', endpoint='get_crawl_logs')
 @app_key_required
+@swag_from(SWAGGER_DOC)
 def get_crawl_logs():
     """获取抓取日志"""
     try:
@@ -185,8 +211,8 @@ def get_crawl_logs():
         return success_response(None, f"获取抓取日志失败: {str(e)}", 60001)
 
 @crawler_bp.route("/stats", methods=["GET"])
-@swag_from('crawler.yml', endpoint='get_crawler_stats')
 @app_key_required
+@swag_from(SWAGGER_DOC)
 def get_crawler_stats():
     """获取爬虫统计信息"""
     try:
@@ -212,8 +238,8 @@ def get_crawler_stats():
         return success_response(None, f"获取爬虫统计信息失败: {str(e)}", 60001)
 
 @crawler_bp.route("/reset_batch", methods=["POST"])
-@swag_from('crawler.yml', endpoint='reset_batch')
 @app_key_required
+@swag_from(SWAGGER_DOC)
 def reset_batch():
     """重置批次状态"""
     try:

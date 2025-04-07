@@ -1,5 +1,3 @@
-# app/api/v1/rss/__init__.py
-"""RSS API模块初始化"""
 from flask import Blueprint
 
 # 创建RSS主蓝图
