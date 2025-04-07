@@ -3,12 +3,16 @@ info:
   title: RSS爬虫API
   description: RSS爬虫相关的API接口
   version: 1.0.0
+  contact:
+    email: example@example.com
+servers:
+  - url: /api/v1
+    description: 默认API路径
 tags:
   - name: 爬虫操作
-    description: RSS爬虫操作接口
 
 paths:
-  /api/v1/rss/crawler/pending_articles:
+  /rss/crawler/pending_articles:
     get:
       operationId: get_pending_articles
       summary: 获取待抓取的文章列表
@@ -74,7 +78,7 @@ paths:
                           format: date-time
                           example: "2023-01-01T12:00:00"
 
-  /api/v1/rss/crawler/claim_article:
+  /rss/crawler/claim_article:
     post:
       operationId: claim_article
       summary: 认领文章进行抓取
@@ -127,7 +131,7 @@ paths:
                         type: string
                         example: "crawler-agent-1"
 
-  /api/v1/rss/crawler/submit_result:
+  /rss/crawler/submit_result:
     post:
       operationId: submit_crawl_result
       summary: 提交抓取结果
@@ -224,7 +228,7 @@ paths:
                         type: string
                         example: "c1d2e3f4"
 
-  /api/v1/rss/crawler/logs:
+  /rss/crawler/logs:
     get:
       operationId: get_crawl_logs
       summary: 获取抓取日志
@@ -355,7 +359,7 @@ paths:
                             type: integer
                             example: 5
 
-  /api/v1/rss/crawler/stats:
+  /rss/crawler/stats:
     get:
       operationId: get_crawler_stats
       summary: 获取爬虫统计信息
@@ -423,7 +427,7 @@ paths:
                               type: number
                               example: 96.0
 
-  /api/v1/rss/crawler/reset_batch:
+  /rss/crawler/reset_batch:
     post:
       operationId: reset_batch
       summary: 重置批次状态
@@ -476,3 +480,8 @@ components:
       in: header
       name: X-App-Key
       description: 应用密钥
+    JWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT认证token

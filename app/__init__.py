@@ -27,19 +27,25 @@ def create_app(config_class=Config):
     register_commands(app)
     
     # 初始化Swagger
-    # 初始化Swagger
-    base_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+
+    base_dir = os.getcwd()
+    swagger_dir = os.path.join(base_dir, 'docs', 'swagger')
+    print(f"Swagger directory: {swagger_dir}")
+    print(f"当前工作目录: {os.getcwd()}")
+    print(f"当前文件: {__file__}")
+    
+    # 确保swagger目录存在
+    os.makedirs(swagger_dir, exist_ok=True)
+    
     app.config['SWAGGER'] = {
         'title': 'IMP API',
         'description': 'Intelligent Middleware Platform API Documentation',
         'version': '1.0.0',
         'uiversion': 3,
-        # 指定swagger文档的绝对路径
-        'doc_dir': './docs/swagger',
+        'doc_dir': swagger_dir,
         'termsOfService': '',
         'hide_top_bar': False,
-        'openapi': '3.0.2',
-        
+        'openapi': '3.0.0',
         'specs': [
             {
                 'endpoint': 'apispec',
@@ -52,6 +58,7 @@ def create_app(config_class=Config):
     }
     Swagger(app)
     
+
     return app
 
 def register_extensions(app):
