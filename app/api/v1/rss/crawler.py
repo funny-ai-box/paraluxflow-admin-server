@@ -3,6 +3,7 @@
 import logging
 import socket
 import uuid
+from app.utils.swagger_utils import document_api
 from flask import Blueprint, request, g
 from flasgger import swag_from
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 crawler_bp = Blueprint("crawler", __name__)
 
 @crawler_bp.route("/pending_articles", methods=["GET"])
+@document_api('crawler.yml', "/pending_articles")
 @app_key_required
 def get_pending_articles():
     """获取待抓取的文章列表
@@ -57,6 +59,7 @@ def get_pending_articles():
         return success_response(None, f"获取待抓取文章失败: {str(e)}", 60001)
 
 @crawler_bp.route("/claim_article", methods=["POST"])
+@document_api('crawler.yml', "/claim_article")
 @app_key_required
 def claim_article():
     #认领(锁定)文章进行抓取
@@ -90,29 +93,10 @@ def claim_article():
         return success_response(None, f"认领文章失败: {str(e)}", 60001)
 
 @crawler_bp.route("/submit_result", methods=["POST"])
+@document_api('crawler.yml', "/submit_result")
 @app_key_required
 def submit_crawl_result():
-    """提交抓取结果
-    
-    请求体:
-    {
-        "article_id": 1,              # 文章ID
-        "batch_id": "uuid",           # 批次ID，不提供则自动生成
-        "status": 1,                  # 状态：1=成功, 2=失败
-        "error_message": "",          # 失败信息
-        "error_type": "",             # 错误类型
-        "html_content": "",           # 抓取到的HTML内容
-        "text_content": "",           # 处理后的文本内容
-        "processing_time": 1.5,       # 处理时间(秒)
-        "request_time": 0.8,          # 请求时间(秒)
-        "http_status": 200,           # HTTP状态码
-        "memory_usage": 150,          # 内存使用(MB)
-        "image_count": 5              # 图片数量
-    }
-    
-    Returns:
-        抓取结果
-    """
+    """提交抓取结果"""
     try:
         # 获取请求数据
         data = request.get_json()
@@ -148,24 +132,12 @@ def submit_crawl_result():
         logger.error(f"提交抓取结果失败: {str(e)}")
         return success_response(None, f"提交抓取结果失败: {str(e)}", 60001)
 
+#获取抓取日志
 @crawler_bp.route("/logs", methods=["GET"])
+@document_api('crawler.yml', "/logs")
 @app_key_required
 def get_crawl_logs():
-    """获取抓取日志
-    
-    查询参数:
-    - page: 页码，默认1
-    - per_page: 每页数量，默认20
-    - article_id: 文章ID
-    - batch_id: 批次ID
-    - crawler_id: 爬虫ID
-    - status: 状态
-    - start_date: 开始日期
-    - end_date: 结束日期
-    
-    Returns:
-        日志列表和分页信息
-    """
+    """获取抓取日志"""
     try:
         # 获取分页参数
         page = request.args.get("page", 1, type=int)
@@ -219,15 +191,11 @@ def get_crawl_logs():
         return success_response(None, f"获取抓取日志失败: {str(e)}", 60001)
 
 @crawler_bp.route("/stats", methods=["GET"])
+@document_api('crawler.yml', "/stats")
 @app_key_required
 def get_crawler_stats():
     """获取爬虫统计信息
-    
-    查询参数:
-    - time_range: 时间范围，可选：today, yesterday, last7days, last30days，默认today
-    
-    Returns:
-        爬虫统计信息
+
     """
     try:
         # 获取时间范围
@@ -252,17 +220,11 @@ def get_crawler_stats():
         return success_response(None, f"获取爬虫统计信息失败: {str(e)}", 60001)
 
 @crawler_bp.route("/reset_batch", methods=["POST"])
+@document_api('crawler.yml', "/reset_batch")
 @app_key_required
 def reset_batch():
     """重置批次状态
-    
-    请求体:
-    {
-        "batch_id": "uuid"  # 批次ID
-    }
-    
-    Returns:
-        操作结果
+
     """
     try:
         # 获取请求数据

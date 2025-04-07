@@ -34,6 +34,8 @@ def create_app(config_class=Config):
         'doc_dir': './docs/swagger/',
         'termsOfService': '',
         'hide_top_bar': False,
+        'openapi': '3.0.2',
+        
         'specs': [
             {
                 'endpoint': 'apispec',

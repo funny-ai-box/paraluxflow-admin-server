@@ -1,6 +1,7 @@
 # app/api/v1/rss/article.py
 """RSS文章API控制器"""
 import logging
+from app.utils.swagger_utils import document_api
 from flask import Blueprint, request, Response
 from urllib.parse import unquote
 
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 article_bp = Blueprint("article", __name__)
 
 @article_bp.route("/list", methods=["GET"])
+
 @auth_required
 def get_articles():
     try:

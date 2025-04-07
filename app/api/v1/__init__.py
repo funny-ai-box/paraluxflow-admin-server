@@ -16,8 +16,7 @@ from app.api.v1.digest.digest import digest_bp
 from app.api.v1.llm.llm import llm_bp
 
 # 注册RSS蓝图组
-rss_bp = Blueprint("rss", __name__)
-rss_bp.register_blueprint(feed_bp, url_prefix="/feed")
+from app.api.v1.rss import rss_bp
 api_v1_bp.register_blueprint(rss_bp, url_prefix="/rss")
 
 # 注册文章蓝图
