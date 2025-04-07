@@ -1,3 +1,4 @@
+import os
 from flask import Flask
 from app.extensions import db, migrate, cors, jwt
 from app.config import AppConfig as Config
@@ -26,12 +27,15 @@ def create_app(config_class=Config):
     register_commands(app)
     
     # 初始化Swagger
+    # 初始化Swagger
+    base_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
     app.config['SWAGGER'] = {
         'title': 'IMP API',
         'description': 'Intelligent Middleware Platform API Documentation',
         'version': '1.0.0',
         'uiversion': 3,
-        'doc_dir': './docs/swagger/',
+        # 指定swagger文档的绝对路径
+        'doc_dir': './docs/swagger',
         'termsOfService': '',
         'hide_top_bar': False,
         'openapi': '3.0.2',

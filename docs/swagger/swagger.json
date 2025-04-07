@@ -1,5 +1,5 @@
 {
-  "openapi": "3.0.2",
+  "swagger": "3.0.0",
   "info": {
     "title": "IMP API",
     "description": "Intelligent Middleware Platform API Documentation",
@@ -8,11 +8,10 @@
       "email": "example@example.com"
     }
   },
-  "servers": [
-    {
-      "url": "/api/v1",
-      "description": "API服务器"
-    }
+  "basePath": "/api/v1",
+  "schemes": [
+    "http",
+    "https"
   ],
   "tags": [
     {
@@ -20,7 +19,7 @@
       "description": "认证相关API"
     },
     {
-      "name": "RSS",
+      "name": "RSS Feed",
       "description": "RSS Feed管理相关API"
     },
     {
@@ -34,61 +33,20 @@
     {
       "name": "LLM",
       "description": "LLM提供商管理相关API"
-    },
-    {
-      "name": "爬虫",
-      "description": "爬虫相关的操作API"
     }
   ],
-  "paths": {},
-  "components": {
-    "securitySchemes": {
-      "JWT": {
-        "type": "apiKey",
-        "name": "Authorization",
-        "in": "header",
-        "description": "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\""
-      },
-      "AppKey": {
-        "type": "apiKey",
-        "name": "X-App-Key",
-        "in": "header",
-        "description": "Application API Key"
-      }
+  "securityDefinitions": {
+    "JWT": {
+      "type": "apiKey",
+      "name": "Authorization",
+      "in": "header",
+      "description": "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\""
     },
-    "schemas": {
-      "ResponseWrapper": {
-        "type": "object",
-        "properties": {
-          "code": {
-            "type": "integer",
-            "description": "响应状态码",
-            "example": 200
-          },
-          "message": {
-            "type": "string",
-            "description": "响应消息",
-            "example": "成功"
-          },
-          "data": {
-            "type": "object",
-            "description": "响应数据"
-          }
-        }
-      },
-      "Error": {
-        "type": "object",
-        "properties": {
-          "code": {
-            "type": "integer",
-            "description": "错误码"
-          },
-          "message": {
-            "type": "string",
-            "description": "错误信息"
-          }
-        }
-      }
+    "AppKey": {
+      "type": "apiKey",
+      "name": "X-App-Key",
+      "in": "header",
+      "description": "Application API Key"
     }
   }
 }

@@ -25,33 +25,7 @@ SWAGGER_DOC = 'crawler.yml'
 
 @crawler_bp.route("/pending_articles", methods=["GET"])
 @app_key_required
-@swag_from({
-    'tags': ['爬虫操作'],
-    'summary': '获取待抓取的文章列表',
-    'description': '获取待抓取的RSS文章列表',
-    'parameters': [
-        {
-            'name': 'limit',
-            'in': 'query',
-            'type': 'integer',
-            'default': 10,
-            'description': '获取数量，默认10'
-        }
-    ],
-    'responses': {
-        200: {
-            'description': '获取文章列表成功',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'code': {'type': 'integer', 'example': 200},
-                    'message': {'type': 'string', 'example': '成功'},
-                    'data': {'type': 'array', 'items': {'type': 'object'}}
-                }
-            }
-        }
-    }
-})
+@swag_from(SWAGGER_DOC)
 def get_pending_articles():
     """获取待抓取的文章列表"""
     try:
