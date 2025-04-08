@@ -103,7 +103,7 @@ class RssFeedArticleCrawlLog(db.Model):
     
     # 关联信息
     article_id = Column(Integer, nullable=False)
-    feed_id = Column(Integer, nullable=False)
+    feed_id = Column(String(32), nullable=False)
     article_url = Column(String(512), nullable=False)
     crawler_id = Column(String(255), nullable=False)
     
@@ -171,7 +171,7 @@ class RssFeedArticleCrawlBatch(db.Model):
     
     # 文章信息
     article_id = Column(Integer, nullable=False)
-    feed_id = Column(Integer, nullable=False)
+    feed_id = Column(String(32), nullable=False)
     article_url = Column(String(512), nullable=False)
     
     # 处理结果
