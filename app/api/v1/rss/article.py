@@ -6,7 +6,7 @@ from flask import Blueprint, request, Response
 from urllib.parse import unquote
 
 from app.api.middleware.auth import auth_required
-from app.core.responses import success_response
+from app.core.responses import error_response, success_response
 from app.infrastructure.database.session import get_db_session
 from flasgger import swag_from
 from app.infrastructure.database.repositories.rss_feed_repository import RssFeedRepository
@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 article_bp = Blueprint("article", __name__)
 
 @article_bp.route("/list", methods=["GET"])
-
 @auth_required
 def get_articles():
     try:
@@ -137,7 +136,7 @@ def sync_feed_articles():
         return success_response(result)
     except Exception as e:
         logger.error(f"同步Feed文章失败: {str(e)}")
-        return success_response(None, f"同步Feed文章失败: {str(e)}", 60001)
+        return error_response(60001, f"同步Feed文章失败: {str(e)}")
 
 @article_bp.route("/batch_sync", methods=["POST"])
 @auth_required
@@ -145,10 +144,13 @@ def batch_sync_articles():
     try:
         # 获取请求数据
         data = request.get_json()
+
+        if not data:
+            return error_response(60001, "未提供数据")
         feed_ids = data.get("feed_ids", [])
         
         if not feed_ids:
-            return success_response(None, "缺少feed_ids参数或为空", 60001)
+            return error_response(60001, "缺少feed_ids参数")
         
         # 创建会话和存储库
         db_session = get_db_session()
@@ -165,7 +167,7 @@ def batch_sync_articles():
         return success_response(result)
     except Exception as e:
         logger.error(f"批量同步Feed文章失败: {str(e)}")
-        return success_response(None, f"批量同步Feed文章失败: {str(e)}", 60001)
+        return error_response(60001, f"批量同步Feed文章失败: {str(e)}")
 
 @article_bp.route("/reset", methods=["POST"])
 @auth_required
@@ -239,7 +241,7 @@ def get_content_from_url():
         # 获取URL
         url = request.args.get("url")
         if not url:
-            return success_response(None, "URL参数是必须的", 60001)
+            return error_response(60001, "未提供URL")
         
         # 创建会话和存储库
         db_session = get_db_session()
@@ -253,9 +255,9 @@ def get_content_from_url():
         # 获取内容
         content, error = article_service.get_content_from_url(url)
         if error:
-            return success_response(None, error, 60001)
+            return error_response(60001, f"获取内容失败: {error}")
         
         return success_response(content)
     except Exception as e:
         logger.error(f"从URL获取文章内容失败: {str(e)}")
-        return success_response(None, f"获取文章内容失败: {str(e)}", 60001)
+        return error_response(60001, f"从URL获取文章内容失败: {str(e)}")

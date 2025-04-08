@@ -4,10 +4,10 @@ import logging
 import os
 import socket
 import uuid
-from app.utils.swagger_helper import api_doc
+
 from flask import Blueprint, request, g, current_app
 from app.api.middleware.app_key_auth import app_key_required
-from app.core.responses import success_response
+from app.core.responses import error_response, success_response
 from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
 from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
@@ -48,7 +48,8 @@ def pending_articles():
         return success_response(articles)
     except Exception as e:
         logger.error(f"获取待抓取文章失败: {str(e)}")
-        return success_response(None, f"获取待抓取文章失败: {str(e)}", 60001)
+        return error_response(60001, f"获取待抓取文章失败: {str(e)}")
+
 
 @crawler_bp.route("/claim_article", methods=["POST"])
 @app_key_required
@@ -58,7 +59,7 @@ def claim_article():
         # 获取请求数据
         data = request.get_json()
         if not data or "article_id" not in data:
-            return success_response(None, "缺少article_id参数", 60001)
+            return error_response(60001, "缺少article_id参数")
         
         article_id = data["article_id"]
         
@@ -81,7 +82,8 @@ def claim_article():
         return success_response(result)
     except Exception as e:
         logger.error(f"认领文章失败: {str(e)}")
-        return success_response(None, f"认领文章失败: {str(e)}", 60001)
+        return error_response(60001, f"认领文章失败: {str(e)}")
+
 
 @crawler_bp.route("/submit_result", methods=["POST"])
 @app_key_required
@@ -91,7 +93,7 @@ def submit_crawl_result():
         # 获取请求数据
         data = request.get_json()
         if not data or "article_id" not in data:
-            return success_response(None, "缺少article_id参数", 60001)
+            return error_response(60001, "缺少article_id参数")
         
         # 获取爬虫标识
         crawler_id = request.headers.get("X-Crawler-ID") or socket.gethostname()
@@ -120,7 +122,7 @@ def submit_crawl_result():
         return success_response(result)
     except Exception as e:
         logger.error(f"提交抓取结果失败: {str(e)}")
-        return success_response(None, f"提交抓取结果失败: {str(e)}", 60001)
+        return error_response(60001, f"提交抓取结果失败: {str(e)}")
 
 @crawler_bp.route("/logs", methods=["GET"])
 @app_key_required
@@ -176,7 +178,7 @@ def get_crawl_logs():
         return success_response(logs)
     except Exception as e:
         logger.error(f"获取抓取日志失败: {str(e)}")
-        return success_response(None, f"获取抓取日志失败: {str(e)}", 60001)
+        return error_response(60001, f"获取抓取日志失败: {str(e)}")
 
 @crawler_bp.route("/stats", methods=["GET"])
 @app_key_required
@@ -202,7 +204,7 @@ def get_crawler_stats():
         return success_response(stats)
     except Exception as e:
         logger.error(f"获取爬虫统计信息失败: {str(e)}")
-        return success_response(None, f"获取爬虫统计信息失败: {str(e)}", 60001)
+        return error_response(60001, f"获取爬虫统计信息失败: {str(e)}")
 
 @crawler_bp.route("/reset_batch", methods=["POST"])
 @app_key_required
@@ -212,7 +214,7 @@ def reset_batch():
         # 获取请求数据
         data = request.get_json()
         if not data or "batch_id" not in data:
-            return success_response(None, "缺少batch_id参数", 60001)
+            return error_response(60001, "缺少batch_id参数")
         
         batch_id = data["batch_id"]
         
@@ -232,4 +234,4 @@ def reset_batch():
         return success_response(result)
     except Exception as e:
         logger.error(f"重置批次状态失败: {str(e)}")
-        return success_response(None, f"重置批次状态失败: {str(e)}", 60001)
+        return error_response(60001, f"重置批次状态失败: {str(e)}")
