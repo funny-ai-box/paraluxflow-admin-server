@@ -24,8 +24,8 @@ class RssFeedArticleRepository:
         self.db = db_session
 
     def get_articles(
-        self, page: int = 1, per_page: int = 10, filters: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    self, page: int = 1, per_page: int = 10, filters: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
         """获取文章列表
         
         Args:
@@ -76,8 +76,8 @@ class RssFeedArticleRepository:
                     if max_retries is not None:
                         query = query.filter(RssFeedArticle.retry_count <= max_retries)
             
-            # 应用排序（按ID降序）
-            query = query.order_by(desc(RssFeedArticle.id))
+            # 应用排序（按发布日期降序）
+            query = query.order_by(desc(RssFeedArticle.published_date))
             
             # 计算总记录数
             total = query.count()
