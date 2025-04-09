@@ -250,3 +250,32 @@ class RssCrawlerAgent(db.Model):
     
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class RssSyncLog(db.Model):
+    """RSS同步任务日志模型"""
+    __tablename__ = "rss_sync_logs"
+
+    id = Column(Integer, primary_key=True)
+    # 同步任务信息
+    sync_id = Column(String(36), nullable=False, comment="同步任务ID")
+    total_feeds = Column(Integer, default=0, comment="总Feed数量")
+    synced_feeds = Column(Integer, default=0, comment="成功同步Feed数量")
+    failed_feeds = Column(Integer, default=0, comment="失败Feed数量")
+    total_articles = Column(Integer, default=0, comment="新增文章总数")
+    status = Column(Integer, default=0, comment="任务状态: 0=进行中, 1=已完成, 2=失败")
+    
+    # 时间信息
+    start_time = Column(DateTime, nullable=False, comment="开始时间")
+    end_time = Column(DateTime, comment="结束时间")
+    total_time = Column(Float, comment="总耗时(秒)")
+    
+    # 详细信息
+    details = Column(JSON, comment="同步详细信息")
+    error_message = Column(Text, comment="错误信息")
+    triggered_by = Column(String(50), comment="触发方式: schedule=定时任务, manual=手动触发")
+    
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    def __repr__(self):
+        return f"<RssSyncLog id={self.id}, sync_id={self.sync_id}, status={self.status}>"

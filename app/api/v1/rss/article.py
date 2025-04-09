@@ -8,7 +8,6 @@ from urllib.parse import unquote
 from app.api.middleware.auth import auth_required
 from app.core.responses import error_response, success_response
 from app.infrastructure.database.session import get_db_session
-from flasgger import swag_from
 from app.infrastructure.database.repositories.rss_feed_repository import RssFeedRepository
 from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
 from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
@@ -110,64 +109,7 @@ def get_article_detail():
         logger.error(f"获取文章详情失败: {str(e)}")
         return success_response(None, f"获取文章详情失败: {str(e)}", 60001)
 
-@article_bp.route("/sync", methods=["POST"])
-@auth_required
-def sync_feed_articles():
-    try:
-        # 获取请求数据
-        data = request.get_json()
-        feed_id = data.get("feed_id")
-        
-        if not feed_id:
-            return success_response(None, "缺少feed_id参数", 60001)
-        
-        # 创建会话和存储库
-        db_session = get_db_session()
-        article_repo = RssFeedArticleRepository(db_session)
-        content_repo = RssFeedArticleContentRepository(db_session)
-        feed_repo = RssFeedRepository(db_session)
-        
-        # 创建服务
-        article_service = ArticleService(article_repo, content_repo, feed_repo)
-        
-        # 同步文章
-        result = article_service.sync_feed_articles(feed_id)
-        
-        return success_response(result)
-    except Exception as e:
-        logger.error(f"同步Feed文章失败: {str(e)}")
-        return error_response(60001, f"同步Feed文章失败: {str(e)}")
 
-@article_bp.route("/batch_sync", methods=["POST"])
-@auth_required
-def batch_sync_articles():
-    try:
-        # 获取请求数据
-        data = request.get_json()
-
-        if not data:
-            return error_response(60001, "未提供数据")
-        feed_ids = data.get("feed_ids", [])
-        
-        if not feed_ids:
-            return error_response(60001, "缺少feed_ids参数")
-        
-        # 创建会话和存储库
-        db_session = get_db_session()
-        article_repo = RssFeedArticleRepository(db_session)
-        content_repo = RssFeedArticleContentRepository(db_session)
-        feed_repo = RssFeedRepository(db_session)
-        
-        # 创建服务
-        article_service = ArticleService(article_repo, content_repo, feed_repo)
-        
-        # 批量同步文章
-        result = article_service.batch_sync_articles(feed_ids)
-        
-        return success_response(result)
-    except Exception as e:
-        logger.error(f"批量同步Feed文章失败: {str(e)}")
-        return error_response(60001, f"批量同步Feed文章失败: {str(e)}")
 
 @article_bp.route("/reset", methods=["POST"])
 @auth_required
