@@ -4,9 +4,10 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
-from sqlalchemy import and_, or_, desc, func
+from sqlalchemy import and_, or_, desc, func,cast, Date, case
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+
 
 from app.infrastructure.database.models.rss import RssFeedArticleCrawlLog, RssFeedArticleCrawlBatch
 
@@ -290,6 +291,316 @@ class RssCrawlerRepository:
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat()
                 }
+            }
+    def analyze_crawler_performance(self, filters: Dict[str, Any], group_by: str = "feed") -> Dict[str, Any]:
+        """分析爬虫性能和成功/失败情况
+        
+        Args:
+            filters: 筛选条件
+            group_by: 分组方式，可选值：feed(按源分组)、date(按日期分组)、crawler(按爬虫分组)
+            
+        Returns:
+            分析结果
+        """
+        try:
+
+            
+            # 基础查询：批次数据
+            base_query = self.db.query(RssFeedArticleCrawlBatch)
+            
+            # 应用筛选条件
+            if filters:
+                if "feed_id" in filters:
+                    base_query = base_query.filter(
+                        RssFeedArticleCrawlBatch.feed_id == filters["feed_id"]
+                    )
+                
+                if "date_range" in filters:
+                    start_date, end_date = filters["date_range"]
+                    if start_date:
+                        base_query = base_query.filter(
+                            RssFeedArticleCrawlBatch.started_at >= start_date
+                        )
+                    if end_date:
+                        base_query = base_query.filter(
+                            RssFeedArticleCrawlBatch.started_at <= end_date
+                        )
+            
+            # 总批次数
+            total_batches = base_query.count()
+            
+            # 成功批次数
+            success_batches = base_query.filter(
+                RssFeedArticleCrawlBatch.final_status == 1
+            ).count()
+            
+            # 失败批次数
+            failed_batches = base_query.filter(
+                RssFeedArticleCrawlBatch.final_status == 2
+            ).count()
+            
+            # 平均处理时间
+            avg_processing_time = self.db.query(
+                func.avg(RssFeedArticleCrawlBatch.total_processing_time)
+            ).select_from(RssFeedArticleCrawlBatch).scalar()
+            
+            # 根据分组方式获取详细分析
+            items = []
+            
+            if group_by == "feed":
+                # 按源分组分析
+                group_stats = self.db.query(
+                    RssFeedArticleCrawlBatch.feed_id,
+                    func.count(RssFeedArticleCrawlBatch.id).label("total"),
+                    func.sum(
+                        case([(RssFeedArticleCrawlBatch.final_status == 1, 1)], else_=0)
+                    ).label("success"),
+                    func.sum(
+                        case([(RssFeedArticleCrawlBatch.final_status == 2, 1)], else_=0)
+                    ).label("failed"),
+                    func.avg(RssFeedArticleCrawlBatch.total_processing_time).label("avg_time")
+                ).group_by(
+                    RssFeedArticleCrawlBatch.feed_id
+                ).all()
+                
+                for stat in group_stats:
+                    success_rate = (stat.success / stat.total * 100) if stat.total > 0 else 0
+                    items.append({
+                        "feed_id": stat.feed_id,
+                        "total_batches": stat.total,
+                        "success_batches": stat.success,
+                        "failed_batches": stat.failed,
+                        "success_rate": round(success_rate, 2),
+                        "avg_processing_time": float(stat.avg_time) if stat.avg_time else None
+                    })
+            
+            elif group_by == "date":
+                # 按日期分组分析
+                group_stats = self.db.query(
+                    cast(RssFeedArticleCrawlBatch.started_at, Date).label("date"),
+                    func.count(RssFeedArticleCrawlBatch.id).label("total"),
+                    func.sum(
+                        case([(RssFeedArticleCrawlBatch.final_status == 1, 1)], else_=0)
+                    ).label("success"),
+                    func.sum(
+                        case([(RssFeedArticleCrawlBatch.final_status == 2, 1)], else_=0)
+                    ).label("failed"),
+                    func.avg(RssFeedArticleCrawlBatch.total_processing_time).label("avg_time")
+                ).group_by(
+                    cast(RssFeedArticleCrawlBatch.started_at, Date)
+                ).order_by(
+                    cast(RssFeedArticleCrawlBatch.started_at, Date).desc()
+                ).all()
+                
+                for stat in group_stats:
+                    success_rate = (stat.success / stat.total * 100) if stat.total > 0 else 0
+                    items.append({
+                        "date": stat.date.isoformat() if stat.date else None,
+                        "total_batches": stat.total,
+                        "success_batches": stat.success,
+                        "failed_batches": stat.failed,
+                        "success_rate": round(success_rate, 2),
+                        "avg_processing_time": float(stat.avg_time) if stat.avg_time else None
+                    })
+            
+            elif group_by == "crawler":
+                # 按爬虫分组分析
+                group_stats = self.db.query(
+                    RssFeedArticleCrawlBatch.crawler_id,
+                    func.count(RssFeedArticleCrawlBatch.id).label("total"),
+                    func.sum(
+                        case([(RssFeedArticleCrawlBatch.final_status == 1, 1)], else_=0)
+                    ).label("success"),
+                    func.sum(
+                        case([(RssFeedArticleCrawlBatch.final_status == 2, 1)], else_=0)
+                    ).label("failed"),
+                    func.avg(RssFeedArticleCrawlBatch.total_processing_time).label("avg_time")
+                ).group_by(
+                    RssFeedArticleCrawlBatch.crawler_id
+                ).all()
+                
+                for stat in group_stats:
+                    success_rate = (stat.success / stat.total * 100) if stat.total > 0 else 0
+                    items.append({
+                        "crawler_id": stat.crawler_id,
+                        "total_batches": stat.total,
+                        "success_batches": stat.success,
+                        "failed_batches": stat.failed,
+                        "success_rate": round(success_rate, 2),
+                        "avg_processing_time": float(stat.avg_time) if stat.avg_time else None
+                    })
+            
+            # 按成功率排序
+            items.sort(key=lambda x: x.get("success_rate", 0), reverse=True)
+            
+            return {
+                "total_batches": total_batches,
+                "success_batches": success_batches,
+                "failed_batches": failed_batches,
+                "overall_success_rate": round((success_batches / total_batches * 100) if total_batches > 0 else 0, 2),
+                "avg_processing_time": float(avg_processing_time) if avg_processing_time else None,
+                "group_by": group_by,
+                "items": items
+            }
+        except SQLAlchemyError as e:
+            logger.error(f"分析爬虫性能失败: {str(e)}")
+            return {
+                "error": str(e),
+                "total_batches": 0,
+                "success_batches": 0,
+                "failed_batches": 0,
+                "overall_success_rate": 0,
+                "items": []
+            }
+
+    def analyze_crawler_errors(self, filters: Dict[str, Any], limit: int = 10) -> Dict[str, Any]:
+        """分析爬虫错误类型和分布
+        
+        Args:
+            filters: 筛选条件
+            limit: 返回的错误类型数量限制
+            
+        Returns:
+            错误分析结果
+        """
+        try:
+            from sqlalchemy import func, and_, distinct
+            
+            # 基础查询：错误日志
+            base_query = self.db.query(RssFeedArticleCrawlBatch).filter(
+                RssFeedArticleCrawlBatch.final_status == 2,  # 只分析失败的批次
+                RssFeedArticleCrawlBatch.error_message != None  # 确保有错误信息
+            )
+            
+            # 应用筛选条件
+            if filters:
+                if "feed_id" in filters:
+                    base_query = base_query.filter(
+                        RssFeedArticleCrawlBatch.feed_id == filters["feed_id"]
+                    )
+                
+                if "date_range" in filters:
+                    start_date, end_date = filters["date_range"]
+                    if start_date:
+                        base_query = base_query.filter(
+                            RssFeedArticleCrawlBatch.started_at >= start_date
+                        )
+                    if end_date:
+                        base_query = base_query.filter(
+                            RssFeedArticleCrawlBatch.started_at <= end_date
+                        )
+            
+            # 获取总失败次数
+            total_errors = base_query.count()
+            
+            # 按错误类型分组统计
+            error_type_stats = self.db.query(
+                RssFeedArticleCrawlBatch.error_type,
+                func.count(RssFeedArticleCrawlBatch.id).label("count")
+            ).filter(
+                RssFeedArticleCrawlBatch.final_status == 2,
+                RssFeedArticleCrawlBatch.error_type != None
+            ).group_by(
+                RssFeedArticleCrawlBatch.error_type
+            ).order_by(
+                func.count(RssFeedArticleCrawlBatch.id).desc()
+            ).limit(limit).all()
+            
+            error_types = []
+            for stat in error_type_stats:
+                percentage = (stat.count / total_errors * 100) if total_errors > 0 else 0
+                error_types.append({
+                    "error_type": stat.error_type or "未知错误类型",
+                    "count": stat.count,
+                    "percentage": round(percentage, 2)
+                })
+            
+            # 按错误阶段分组统计
+            error_stage_stats = self.db.query(
+                RssFeedArticleCrawlBatch.error_stage,
+                func.count(RssFeedArticleCrawlBatch.id).label("count")
+            ).filter(
+                RssFeedArticleCrawlBatch.final_status == 2,
+                RssFeedArticleCrawlBatch.error_stage != None
+            ).group_by(
+                RssFeedArticleCrawlBatch.error_stage
+            ).order_by(
+                func.count(RssFeedArticleCrawlBatch.id).desc()
+            ).all()
+            
+            error_stages = []
+            for stat in error_stage_stats:
+                percentage = (stat.count / total_errors * 100) if total_errors > 0 else 0
+                error_stages.append({
+                    "error_stage": stat.error_stage or "未知错误阶段",
+                    "count": stat.count,
+                    "percentage": round(percentage, 2)
+                })
+            
+            # 获取失败频率最高的源
+            feed_error_stats = self.db.query(
+                RssFeedArticleCrawlBatch.feed_id,
+                func.count(RssFeedArticleCrawlBatch.id).label("error_count")
+            ).filter(
+                RssFeedArticleCrawlBatch.final_status == 2
+            ).group_by(
+                RssFeedArticleCrawlBatch.feed_id
+            ).order_by(
+                func.count(RssFeedArticleCrawlBatch.id).desc()
+            ).limit(5).all()
+            
+            top_error_feeds = []
+            for stat in feed_error_stats:
+                percentage = (stat.error_count / total_errors * 100) if total_errors > 0 else 0
+                top_error_feeds.append({
+                    "feed_id": stat.feed_id,
+                    "error_count": stat.error_count,
+                    "percentage": round(percentage, 2)
+                })
+            
+            # 获取常见错误消息样本
+            common_errors = self.db.query(
+                RssFeedArticleCrawlBatch.error_message,
+                func.count(RssFeedArticleCrawlBatch.id).label("count")
+            ).filter(
+                RssFeedArticleCrawlBatch.final_status == 2,
+                RssFeedArticleCrawlBatch.error_message != None
+            ).group_by(
+                RssFeedArticleCrawlBatch.error_message
+            ).order_by(
+                func.count(RssFeedArticleCrawlBatch.id).desc()
+            ).limit(5).all()
+            
+            error_messages = []
+            for err in common_errors:
+                percentage = (err.count / total_errors * 100) if total_errors > 0 else 0
+                # 截断过长的错误消息
+                error_message = err.error_message
+                if error_message and len(error_message) > 100:
+                    error_message = error_message[:100] + "..."
+                    
+                error_messages.append({
+                    "error_message": error_message,
+                    "count": err.count,
+                    "percentage": round(percentage, 2)
+                })
+            
+            return {
+                "total_errors": total_errors,
+                "error_types": error_types,
+                "error_stages": error_stages,
+                "top_error_feeds": top_error_feeds,
+                "common_error_messages": error_messages
+            }
+        except SQLAlchemyError as e:
+            logger.error(f"分析爬虫错误失败: {str(e)}")
+            return {
+                "error": str(e),
+                "total_errors": 0,
+                "error_types": [],
+                "error_stages": [],
+                "top_error_feeds": [],
+                "common_error_messages": []
             }
 
     def reset_batch(self, batch_id: str) -> bool:
