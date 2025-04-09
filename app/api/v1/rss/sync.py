@@ -18,7 +18,7 @@ from app.domains.rss.services.article_service import ArticleService
 logger = logging.getLogger(__name__)
 sync_bp = Blueprint("sync", __name__)
 
-@sync_bp.route("/sync", methods=["POST"])
+@sync_bp.route("/sync_feed_articles", methods=["POST"])
 @auth_required
 def sync_feed_articles():
     try:
@@ -77,7 +77,7 @@ def batch_sync_articles():
         logger.error(f"批量同步Feed文章失败: {str(e)}")
         return error_response(60001, f"批量同步Feed文章失败: {str(e)}")
     
-@sync_bp.route("/list", methods=["GET"])
+@sync_bp.route("/sync_log_list", methods=["GET"])
 @auth_required
 def get_sync_logs():
     """获取RSS同步日志列表
@@ -134,9 +134,9 @@ def get_sync_logs():
         logger.error(error_msg)
         return error_response(PARAMETER_ERROR, error_msg)
 
-@sync_bp.route("/detail/<string:sync_id>", methods=["GET"])
+@sync_bp.route("/sync_log_detail", methods=["GET"])
 @auth_required
-def get_sync_log_detail(sync_id):
+def get_sync_log_detail():
     """获取RSS同步日志详情
     
     Args:
@@ -145,10 +145,14 @@ def get_sync_log_detail(sync_id):
     Returns:
         同步日志详情
     """
-    print(f"\n===== 获取RSS同步日志详情 [ID: {sync_id}] =====")
+ 
     try:
         # 创建数据库会话
         db_session = get_db_session()
+        sync_id = request.args.get("sync_id")
+        if not sync_id:
+            return error_response(PARAMETER_ERROR, "缺少sync_id参数")
+        print(f"获取同步日志详情: 同步ID={sync_id}")
         
         # 创建仓库
         sync_log_repo = RssSyncLogRepository(db_session)
@@ -168,7 +172,7 @@ def get_sync_log_detail(sync_id):
         logger.error(error_msg)
         return error_response(PARAMETER_ERROR, error_msg)
 
-@sync_bp.route("/stats", methods=["GET"])
+@sync_bp.route("/sync_log_stats", methods=["GET"])
 @auth_required
 def get_sync_logs_stats():
     """获取RSS同步统计信息
