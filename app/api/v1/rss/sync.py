@@ -1,4 +1,6 @@
 import logging
+import uuid
+from datetime import datetime
 
 from app.core.status_codes import PARAMETER_ERROR
 from app.domains.rss.services.sync_service import SyncService
@@ -21,50 +23,168 @@ sync_bp = Blueprint("sync", __name__)
 @sync_bp.route("/sync_feed_articles", methods=["POST"])
 @auth_required
 def sync_feed_articles():
+    """同步单个Feed的文章，并记录同步日志"""
     try:
         # 获取请求数据
         data = request.get_json()
         feed_id = data.get("feed_id")
         
         if not feed_id:
-            return success_response(None, "缺少feed_id参数", 60001)
+            return error_response(PARAMETER_ERROR, "缺少feed_id参数")
         
         # 创建会话和存储库
         db_session = get_db_session()
         article_repo = RssFeedArticleRepository(db_session)
         content_repo = RssFeedArticleContentRepository(db_session)
         feed_repo = RssFeedRepository(db_session)
+        sync_log_repo = RssSyncLogRepository(db_session)
         
         # 创建服务
         article_service = ArticleService(article_repo, content_repo, feed_repo)
         
-        # 同步文章
-        result = article_service.sync_feed_articles(feed_id)
+        # 生成同步ID
+        sync_id = str(uuid.uuid4())
+        start_time = datetime.now()
         
-        return success_response(result)
+        # 获取Feed信息
+        err, feed = feed_repo.get_feed_by_id(feed_id)
+        if err:
+            return error_response(PARAMETER_ERROR, f"获取Feed信息失败: {err}")
+        
+        # 创建初始同步日志
+        log_data = {
+            "sync_id": sync_id,
+            "total_feeds": 1,
+            "synced_feeds": 0,
+            "failed_feeds": 0,
+            "total_articles": 0,
+            "status": 0,  # 进行中
+            "start_time": start_time,
+            "triggered_by": "manual",
+            "details": {
+                "feeds": [{
+                    "feed_id": feed_id,
+                    "feed_title": feed.get("title", "未知Feed"),
+                    "status": "pending"
+                }]
+            }
+        }
+        
+        sync_log_repo.create_log(log_data)
+        
+        try:
+            # 同步文章
+            result = article_service.sync_feed_articles(feed_id)
+            
+            # 计算同步耗时
+            end_time = datetime.now()
+            total_time = (end_time - start_time).total_seconds()
+            
+            # 更新同步日志为成功
+            sync_log_repo.update_log(sync_id, {
+                "synced_feeds": 1,
+                "failed_feeds": 0,
+                "total_articles": result.get("total", 0),
+                "status": 1,  # 成功
+                "end_time": end_time,
+                "total_time": total_time,
+                "details": {
+                    "feeds": [{
+                        "feed_id": feed_id,
+                        "feed_title": feed.get("title", "未知Feed"),
+                        "status": "success",
+                        "articles_count": result.get("total", 0),
+                        "sync_time": total_time
+                    }]
+                }
+            })
+            
+            result["sync_id"] = sync_id
+            return success_response(result, "同步成功")
+            
+        except Exception as e:
+            # 计算同步耗时
+            end_time = datetime.now()
+            total_time = (end_time - start_time).total_seconds()
+            
+            # 更新同步日志为失败
+            sync_log_repo.update_log(sync_id, {
+                "synced_feeds": 0,
+                "failed_feeds": 1,
+                "status": 2,  # 失败
+                "end_time": end_time,
+                "total_time": total_time,
+                "error_message": str(e),
+                "details": {
+                    "feeds": [{
+                        "feed_id": feed_id,
+                        "feed_title": feed.get("title", "未知Feed"),
+                        "status": "failed",
+                        "error": str(e),
+                        "sync_time": total_time
+                    }]
+                }
+            })
+            
+            raise  # 重新抛出异常
+            
     except Exception as e:
         logger.error(f"同步Feed文章失败: {str(e)}")
-        return error_response(60001, f"同步Feed文章失败: {str(e)}")
+        return error_response(PARAMETER_ERROR, f"同步Feed文章失败: {str(e)}")
 
-@sync_bp.route("/batch_sync", methods=["POST"])
+@sync_bp.route("/batch_sync_articles", methods=["POST"])
 @auth_required
 def batch_sync_articles():
+    """批量同步多个Feed的文章，并记录同步日志"""
     try:
         # 获取请求数据
         data = request.get_json()
 
         if not data:
-            return error_response(60001, "未提供数据")
+            return error_response(PARAMETER_ERROR, "未提供数据")
         feed_ids = data.get("feed_ids", [])
         
         if not feed_ids:
-            return error_response(60001, "缺少feed_ids参数")
+            return error_response(PARAMETER_ERROR, "缺少feed_ids参数")
         
         # 创建会话和存储库
         db_session = get_db_session()
         article_repo = RssFeedArticleRepository(db_session)
         content_repo = RssFeedArticleContentRepository(db_session)
         feed_repo = RssFeedRepository(db_session)
+        sync_log_repo = RssSyncLogRepository(db_session)
+        
+        # 生成同步ID
+        sync_id = str(uuid.uuid4())
+        start_time = datetime.now()
+        
+        # 获取要同步的Feed列表信息
+        feeds_info = []
+        for feed_id in feed_ids:
+            err, feed = feed_repo.get_feed_by_id(feed_id)
+            if not err and feed:
+                feeds_info.append({
+                    "feed_id": feed_id,
+                    "feed_title": feed.get("title", "未知Feed"),
+                    "status": "pending"
+                })
+        
+        # 创建初始同步日志
+        log_data = {
+            "sync_id": sync_id,
+            "total_feeds": len(feed_ids),
+            "synced_feeds": 0,
+            "failed_feeds": 0,
+            "total_articles": 0,
+            "status": 0,  # 进行中
+            "start_time": start_time,
+            "triggered_by": "manual",
+            "details": {
+                "feeds": feeds_info
+            }
+        }
+        
+        sync_log_repo.create_log(log_data)
         
         # 创建服务
         article_service = ArticleService(article_repo, content_repo, feed_repo)
@@ -72,11 +192,52 @@ def batch_sync_articles():
         # 批量同步文章
         result = article_service.batch_sync_articles(feed_ids)
         
-        return success_response(result)
+        # 计算同步耗时
+        end_time = datetime.now()
+        total_time = (end_time - start_time).total_seconds()
+        
+        # 处理结果数据以更新日志
+        feed_details = []
+        total_articles = 0
+        
+        for feed_id, details in result.get("details", {}).items():
+            feed_title = next((f.get("feed_title") for f in feeds_info if f.get("feed_id") == feed_id), "未知Feed")
+            status = details.get("status")
+            articles_count = details.get("total", 0) if status == "success" else 0
+            total_articles += articles_count
+            
+            feed_details.append({
+                "feed_id": feed_id,
+                "feed_title": feed_title,
+                "status": status,
+                "articles_count": articles_count,
+                "error": details.get("message") if status == "failed" else None,
+                "sync_time": total_time / len(feed_ids)  # 平均时间，实际上每个Feed的时间可能不同
+            })
+        
+        # 更新同步日志
+        sync_log_repo.update_log(sync_id, {
+            "synced_feeds": result.get("success", 0),
+            "failed_feeds": result.get("failed", 0),
+            "total_articles": total_articles,
+            "status": 1 if result.get("failed", 0) == 0 else 2,  # 如果有失败则整体标记为失败
+            "end_time": end_time,
+            "total_time": total_time,
+            "error_message": f"{result.get('failed', 0)}个Feed同步失败" if result.get("failed", 0) > 0 else None,
+            "details": {
+                "feeds": feed_details
+            }
+        })
+        
+        # 添加同步ID到返回结果
+        result["sync_id"] = sync_id
+        result["total_time"] = total_time
+        result["total_articles"] = total_articles
+        
+        return success_response(result, "批量同步完成")
     except Exception as e:
         logger.error(f"批量同步Feed文章失败: {str(e)}")
-        return error_response(60001, f"批量同步Feed文章失败: {str(e)}")
-    
+        return error_response(PARAMETER_ERROR, f"批量同步Feed文章失败: {str(e)}")
 @sync_bp.route("/sync_log_list", methods=["GET"])
 @auth_required
 def get_sync_logs():
