@@ -724,3 +724,111 @@ class RssCrawlerRepository:
             "created_at": log.created_at.isoformat() if log.created_at else None,
             "updated_at": log.updated_at.isoformat() if log.updated_at else None
         }
+    
+    def get_feed_failed_articles(self, feed_id: str, page: int = 1, per_page: int = 20) -> Dict[str, Any]:
+        """获取指定订阅源的失败文章列表
+        
+        Args:
+            feed_id: 订阅源ID
+            page: 页码
+            per_page: 每页数量
+            
+        Returns:
+            失败文章列表及分页信息
+        """
+        try:
+            from app.infrastructure.database.models.rss import RssFeedArticle
+            
+            # 查询该订阅源下状态为失败的文章
+            query = self.db.query(RssFeedArticle).filter(
+                RssFeedArticle.feed_id == feed_id,
+                RssFeedArticle.status == 2  # 2表示抓取失败
+            )
+            
+            # 计算总记录数
+            total = query.count()
+            
+            # 应用排序（按ID降序）
+            query = query.order_by(desc(RssFeedArticle.id))
+            
+            # 应用分页
+            articles = query.limit(per_page).offset((page - 1) * per_page).all()
+            
+            # 转换为字典列表
+            article_list = []
+            for article in articles:
+                article_dict = {
+                    "id": article.id,
+                    "title": article.title,
+                    "link": article.link,
+                    "published_date": article.published_date.isoformat() if article.published_date else None,
+                    "retry_count": article.retry_count,
+                    "error_message": article.error_message,
+                    "created_at": article.created_at.isoformat() if article.created_at else None,
+                    "updated_at": article.updated_at.isoformat() if article.updated_at else None
+                }
+                article_list.append(article_dict)
+            
+            # 计算总页数
+            pages = (total + per_page - 1) // per_page if per_page > 0 else 0
+            
+            return {
+                "list": article_list,
+                "total": total,
+                "pages": pages,
+                "current_page": page,
+                "per_page": per_page
+            }
+        except SQLAlchemyError as e:
+            logger.error(f"获取订阅源失败文章列表错误, feed_id={feed_id}: {str(e)}")
+            return {
+                "list": [],
+                "total": 0,
+                "pages": 0,
+                "current_page": page,
+                "per_page": per_page,
+                "error": str(e)
+            }
+
+    def get_article_crawl_errors(self, article_id: int) -> List[Dict[str, Any]]:
+        """获取文章的爬取失败详情
+        
+        Args:
+            article_id: 文章ID
+            
+        Returns:
+            爬取失败记录列表
+        """
+        try:
+            # 查询该文章所有的爬取批次记录
+            batches = self.db.query(RssFeedArticleCrawlBatch).filter(
+                RssFeedArticleCrawlBatch.article_id == article_id,
+                RssFeedArticleCrawlBatch.final_status == 2  # 仅查询失败的批次
+            ).order_by(desc(RssFeedArticleCrawlBatch.started_at)).all()
+            
+            batch_errors = []
+            for batch in batches:
+                # 查询该批次的详细日志
+                logs = self.db.query(RssFeedArticleCrawlLog).filter(
+                    RssFeedArticleCrawlLog.batch_id == batch.batch_id,
+                    RssFeedArticleCrawlLog.status == 2  # 仅查询失败的日志
+                ).order_by(RssFeedArticleCrawlLog.created_at).all()
+                
+                batch_dict = {
+                    "batch_id": batch.batch_id,
+                    "crawler_id": batch.crawler_id,
+                    "started_at": batch.started_at.isoformat() if batch.started_at else None,
+                    "ended_at": batch.ended_at.isoformat() if batch.ended_at else None,
+                    "total_processing_time": batch.total_processing_time,
+                    "error_type": batch.error_type,
+                    "error_stage": batch.error_stage,
+                    "error_message": batch.error_message,
+                    "crawler_host": batch.crawler_host,
+                    "logs": [self._log_to_dict(log) for log in logs]
+                }
+                batch_errors.append(batch_dict)
+            
+            return batch_errors
+        except SQLAlchemyError as e:
+            logger.error(f"获取文章爬取失败详情错误, article_id={article_id}: {str(e)}")
+            return []

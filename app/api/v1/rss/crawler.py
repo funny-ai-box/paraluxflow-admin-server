@@ -6,6 +6,7 @@ import socket
 import uuid
 
 from app.api.middleware.auth import auth_required
+from app.core.status_codes import PARAMETER_ERROR
 from flask import Blueprint, request, g, current_app
 
 from app.core.responses import error_response, success_response
@@ -209,3 +210,103 @@ def analyze_crawler_errors():
     except Exception as e:
         logger.error(f"分析爬虫错误失败: {str(e)}")
         return error_response(60001, f"分析爬虫错误失败: {str(e)}")
+    
+@crawler_bp.route("/feed_failed_articles", methods=["GET"])
+@auth_required
+def get_feed_failed_articles():
+    """获取指定订阅源的失败文章列表
+    
+    获取指定订阅源中抓取失败的文章列表，包括失败原因和重试次数
+    
+    URL参数:
+      - feed_id: 订阅源ID(必填)
+      - page: 页码，默认1
+      - per_page: 每页数量，默认20
+    
+    返回数据:
+      - 失败文章列表及分页信息
+    """
+    try:
+        # 获取URL参数
+        feed_id = request.args.get("feed_id")
+        if not feed_id:
+            return error_response(PARAMETER_ERROR, "缺少feed_id参数")
+        
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 20, type=int)
+        
+        # 创建会话和存储库
+        db_session = get_db_session()
+        article_repo = RssFeedArticleRepository(db_session)
+        content_repo = RssFeedArticleContentRepository(db_session)
+        crawler_repo = RssCrawlerRepository(db_session)
+        script_repo = RssFeedCrawlScriptRepository(db_session)
+        
+        # 创建服务
+        crawler_service = CrawlerService(article_repo, content_repo, crawler_repo, script_repo)
+        
+        # 获取失败文章列表
+        failed_articles = crawler_service.get_feed_failed_articles(feed_id, page, per_page)
+        
+        return success_response(failed_articles, "获取失败文章列表成功")
+    except Exception as e:
+        logger.error(f"获取订阅源失败文章列表错误: {str(e)}")
+        return error_response(PARAMETER_ERROR, f"获取失败文章列表失败: {str(e)}")
+
+@crawler_bp.route("/article_errors", methods=["GET"])
+@auth_required
+def get_article_crawl_errors():
+    """获取文章的爬取失败详情
+    
+    获取指定文章的所有爬取失败记录，包括详细的错误信息和爬取日志
+    
+    URL参数:
+      - article_id: 文章ID(必填)
+    
+    返回数据:
+      - 爬取失败记录列表，按时间倒序排列
+    """
+    try:
+        # 获取URL参数
+        article_id = request.args.get("article_id", type=int)
+        if not article_id:
+            return error_response(PARAMETER_ERROR, "缺少article_id参数")
+        
+        # 创建会话和存储库
+        db_session = get_db_session()
+        article_repo = RssFeedArticleRepository(db_session)
+        content_repo = RssFeedArticleContentRepository(db_session)
+        crawler_repo = RssCrawlerRepository(db_session)
+        script_repo = RssFeedCrawlScriptRepository(db_session)
+        
+        # 创建服务
+        crawler_service = CrawlerService(article_repo, content_repo, crawler_repo, script_repo)
+        
+        # 获取文章基本信息
+        err, article = article_repo.get_article_by_id(article_id)
+        if err:
+            return error_response(PARAMETER_ERROR, f"获取文章信息失败: {err}")
+        
+        # 获取爬取失败详情
+        crawl_errors = crawler_service.get_article_crawl_errors(article_id)
+        
+        # 构建响应数据
+        response_data = {
+            "article": {
+                "id": article["id"],
+                "title": article["title"],
+                "link": article["link"],
+                "feed_id": article["feed_id"],
+                "feed_title": article["feed_title"],
+                "status": article["status"],
+                "retry_count": article["retry_count"],
+                "max_retries": article["max_retries"],
+                "error_message": article["error_message"]
+            },
+            "crawl_errors": crawl_errors
+        }
+        
+        return success_response(response_data, "获取文章爬取失败详情成功")
+    except Exception as e:
+        logger.error(f"获取文章爬取失败详情错误: {str(e)}")
+        return error_response(PARAMETER_ERROR, f"获取文章爬取失败详情失败: {str(e)}")

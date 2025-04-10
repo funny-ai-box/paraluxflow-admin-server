@@ -297,3 +297,27 @@ class CrawlerService:
             "batch_id": batch_id,
             "article_id": batch["article_id"]
         }
+    
+    def get_feed_failed_articles(self, feed_id: str, page: int = 1, per_page: int = 20) -> Dict[str, Any]:
+        """获取指定订阅源的失败文章列表
+        
+        Args:
+            feed_id: 订阅源ID
+            page: 页码
+            per_page: 每页数量
+            
+        Returns:
+            失败文章列表及分页信息
+        """
+        return self.crawler_repo.get_feed_failed_articles(feed_id, page, per_page)
+
+    def get_article_crawl_errors(self, article_id: int) -> List[Dict[str, Any]]:
+        """获取文章的爬取失败详情
+        
+        Args:
+            article_id: 文章ID
+            
+        Returns:
+            爬取失败记录列表
+        """
+        return self.crawler_repo.get_article_crawl_errors(article_id)
