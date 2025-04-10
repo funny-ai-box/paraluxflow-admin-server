@@ -1,4 +1,3 @@
-"""RSS Feed数据库模型"""
 from datetime import datetime, timedelta
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, JSON, Float, func
@@ -38,13 +37,16 @@ class RssFeed(db.Model):
     crawl_delay = Column(Integer, default=0, comment="抓取延迟(秒)")
     custom_headers = Column(Text, comment="自定义请求头(JSON字符串)")
     
+    # 代理相关字段
+    use_proxy = Column(Boolean, default=False, comment="是否使用代理")
+
+    
     # 更多统计
     avg_article_length = Column(Integer, comment="平均文章长度(字符)")
     last_new_article_at = Column(DateTime, comment="最近新文章时间")
 
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-
 
 class RssFeedCategory(db.Model):
     """RSS Feed分类模型"""

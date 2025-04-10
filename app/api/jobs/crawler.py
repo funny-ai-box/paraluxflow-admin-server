@@ -3,6 +3,7 @@
 import logging
 import socket
 import uuid
+from app.infrastructure.database.repositories.rss_feed_repository import RssFeedRepository
 from flask import Blueprint, request, current_app
 from app.api.middleware.app_key_auth import app_key_required
 from app.core.responses import success_response, error_response
@@ -22,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 # 创建爬虫任务蓝图
 crawler_jobs_bp = Blueprint("crawler_jobs", __name__)
-
 @crawler_jobs_bp.route("/pending_articles", methods=["GET"])
 @app_key_required
 def pending_articles():
@@ -40,9 +40,10 @@ def pending_articles():
         content_repo = RssFeedArticleContentRepository(db_session)
         crawler_repo = RssCrawlerRepository(db_session)
         script_repo = RssFeedCrawlScriptRepository(db_session)
+        feed_repo = RssFeedRepository(db_session)
         
         # 创建服务
-        crawler_service = CrawlerService(article_repo, content_repo, crawler_repo, script_repo)
+        crawler_service = CrawlerService(article_repo, content_repo, crawler_repo, script_repo, feed_repo)
         
         # 获取待抓取文章
         articles = crawler_service.get_pending_articles(limit, crawler_id)
@@ -73,9 +74,10 @@ def claim_article():
         content_repo = RssFeedArticleContentRepository(db_session)
         crawler_repo = RssCrawlerRepository(db_session)
         script_repo = RssFeedCrawlScriptRepository(db_session)
+        feed_repo = RssFeedRepository(db_session)
         
         # 创建服务
-        crawler_service = CrawlerService(article_repo, content_repo, crawler_repo, script_repo)
+        crawler_service = CrawlerService(article_repo, content_repo, crawler_repo, script_repo, feed_repo)
         
         # 认领文章
         result = crawler_service.claim_article(article_id, crawler_id)

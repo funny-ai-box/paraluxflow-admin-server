@@ -16,7 +16,7 @@ class Config:
     
     # JWT配置
     JWT_SECRET_KEY = "jwt-secret-key"
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=144)
     
     # 文件上传配置
     UPLOAD_FOLDER = "uploads"

@@ -70,35 +70,37 @@ class FeedService:
         return feed
     
     def add_feed(self, feed_data: Dict[str, Any]) -> Dict[str, Any]:
-      """添加新Feed
-      
-      Args:
+        """添加新Feed
+        
+        Args:
             feed_data: Feed数据
-                  
-      Returns:
+                    
+        Returns:
             新增的Feed详情
-                  
-      Raises:
+                    
+        Raises:
             Exception: 添加失败时抛出异常
-      """
-      # 验证必填字段
-      required_fields = ["title", "logo", "url", "category_id"]
-      missing_fields = [field for field in required_fields if field not in feed_data]
-      if missing_fields:
+        """
+        # 验证必填字段
+        required_fields = ["title", "logo", "url", "category_id"]
+        missing_fields = [field for field in required_fields if field not in feed_data]
+        if missing_fields:
             raise Exception(f"缺少必填字段: {', '.join(missing_fields)}")
-      
-      # 处理自定义请求头
-      if "custom_headers" in feed_data and isinstance(feed_data["custom_headers"], dict):
+        
+        # 处理自定义请求头
+        if "custom_headers" in feed_data and isinstance(feed_data["custom_headers"], dict):
             import json
             feed_data["custom_headers"] = json.dumps(feed_data["custom_headers"])
-      
-      # 添加Feed
-      err, result = self.feed_repo.add_feed(feed_data)
-      if err:
+        
+        
+        
+        # 添加Feed
+        err, result = self.feed_repo.add_feed(feed_data)
+        if err:
             raise Exception(f"添加Feed失败: {err}")
-      
-      return result
-    
+        
+        return result
+
     def update_feed(self, feed_id: str, feed_data: Dict[str, Any]) -> Dict[str, Any]:
         """更新Feed
         
@@ -116,6 +118,13 @@ class FeedService:
         err, current_feed = self.feed_repo.get_feed_by_id(feed_id)
         if err:
             raise Exception(f"获取Feed信息失败: {err}")
+        
+        # 处理自定义请求头
+        if "custom_headers" in feed_data and isinstance(feed_data["custom_headers"], dict):
+            import json
+            feed_data["custom_headers"] = json.dumps(feed_data["custom_headers"])
+        
+        
         
         # 更新Feed
         err, result = self.feed_repo.update_feed(feed_id, feed_data)

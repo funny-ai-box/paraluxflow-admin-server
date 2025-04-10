@@ -297,6 +297,11 @@ class RssFeedRepository:
             "last_successful_fetch_at": feed.last_successful_fetch_at.isoformat() if feed.last_successful_fetch_at else None,
             "total_articles_count": feed.total_articles_count,
             "consecutive_failures": feed.consecutive_failures,
-            "created_at": feed.created_at.isoformat() if feed.created_at else None,
-            "updated_at": feed.updated_at.isoformat() if feed.updated_at else None,
-        }
+            # 抓取控制
+            "crawl_with_js": feed.crawl_with_js,
+            "crawl_delay": feed.crawl_delay,
+            "custom_headers": feed.custom_headers,
+            # 代理配置
+            "use_proxy": feed.use_proxy,
+      
+    }

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class CrawlerService:
     """爬虫管理服务，处理RSS文章内容的分布式抓取"""
     
-    def __init__(self, article_repo, content_repo, crawler_repo, script_repo):
+    def __init__(self, article_repo, content_repo, crawler_repo, script_repo, feed_repo=None):
         """初始化爬虫服务
         
         Args:
@@ -19,11 +19,13 @@ class CrawlerService:
             content_repo: 内容仓库
             crawler_repo: 爬虫日志仓库
             script_repo: 脚本仓库
+            feed_repo: Feed仓库，用于获取Feed配置
         """
         self.article_repo = article_repo
         self.content_repo = content_repo
         self.crawler_repo = crawler_repo
         self.script_repo = script_repo
+        self.feed_repo = feed_repo
     
     def get_pending_articles(self, limit: int = 10, crawler_id: str = None) -> List[Dict[str, Any]]:
         """获取待抓取的文章
@@ -33,24 +35,43 @@ class CrawlerService:
             crawler_id: 爬虫标识
             
         Returns:
-            待抓取文章列表
+            待抓取文章列表，附带源配置
         """
         # 获取待抓取文章
         articles = self.article_repo.get_pending_articles(limit)
         
-        # 获取Feed对应的脚本
-        feed_scripts = {}
+        # 缓存已获取的Feed信息
+        feed_cache = {}
+        
+        # 遍历文章，获取对应的Feed信息和脚本
         for article in articles:
             feed_id = article["feed_id"]
-            if feed_id not in feed_scripts:
-                err, script = self.script_repo.get_feed_published_script(feed_id)
-                if not err and script:
-                    feed_scripts[feed_id] = script["script"]
-                else:
-                    feed_scripts[feed_id] = None
             
-            # 添加脚本到文章
-            article["script"] = feed_scripts.get(feed_id)
+            # 获取Feed信息
+            if feed_id not in feed_cache:
+                err, feed_info = self.feed_repo.get_feed_by_id(feed_id)
+                if not err and feed_info:
+                    feed_cache[feed_id] = feed_info
+                    
+                    # 获取对应的脚本
+                    err, script = self.script_repo.get_feed_published_script(feed_id)
+                    if not err and script:
+                        feed_cache[feed_id]["script"] = script["script"]
+                    else:
+                        feed_cache[feed_id]["script"] = None
+            
+            # 将Feed信息添加到文章中
+            if feed_id in feed_cache:
+                # 提取关键的Feed配置信息
+                article["feed_config"] = {
+                    "crawl_with_js": feed_cache[feed_id].get("crawl_with_js", False),
+                    "crawl_delay": feed_cache[feed_id].get("crawl_delay", 0),
+                    "custom_headers": feed_cache[feed_id].get("custom_headers"),
+                    "use_proxy": feed_cache[feed_id].get("use_proxy", False),
+
+                }
+                # 添加脚本
+                article["script"] = feed_cache[feed_id].get("script")
         
         return articles
     
@@ -62,7 +83,7 @@ class CrawlerService:
             crawler_id: 爬虫标识
             
         Returns:
-            认领结果
+            认领结果，附带源配置
             
         Raises:
             Exception: 认领失败时抛出异常
@@ -72,14 +93,27 @@ class CrawlerService:
         if err:
             raise Exception(f"锁定文章失败: {err}")
         
-        # 获取文章的Feed对应的脚本
+        # 获取文章的Feed信息
         feed_id = article["feed_id"]
+        err, feed = self.feed_repo.get_feed_by_id(feed_id)
+        
+        if not err and feed:
+            # 提取关键的Feed配置信息
+            article["feed_config"] = {
+                "crawl_with_js": feed.get("crawl_with_js", False),
+                "crawl_delay": feed.get("crawl_delay", 0),
+                "custom_headers": feed.get("custom_headers"),
+                "use_proxy": feed.get("use_proxy", False),
+            }
+        
+        # 获取文章的Feed对应的脚本
         err, script = self.script_repo.get_feed_published_script(feed_id)
         
         # 添加脚本到认领结果
         article["script"] = script["script"] if not err and script else None
         
         return article
+
     
     def submit_crawl_result(self, article_id: int, crawler_id: str, batch_id: str, result_data: Dict[str, Any]) -> Dict[str, Any]:
         """提交抓取结果
