@@ -11,7 +11,7 @@ class Config:
     SQLALCHEMY_ECHO = False
     
     # 数据库配置
-    SQLALCHEMY_DATABASE_URI = "sqlite:///imp.db"
+    SQLALCHEMY_DATABASE_URI = os.environ.get("SQLALCHEMY_DATABASE_URI", "mysql+pymysql://root:F2Ih1Q5K83AbyDEn9Jro4c0tPBmeX6M7@mysql.zeabur.internal/paraluxflow")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # JWT配置
