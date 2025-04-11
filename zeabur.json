@@ -5,7 +5,7 @@
       "deploy": {
         "startCommand": "/app/start.sh",
         "healthCheck": {
-          "path": "/api/v1/auth/public_key",
+          "path": "/health",
           "port": "$PORT"
         }
       },
@@ -13,13 +13,16 @@
         "mysql": {
           "type": "mysql",
           "version": "8.0",
-          "persistent": true
+          "persistent": true,
+          "as": "DATABASE",
+          "exposable": true
         },
         "redis": {
           "type": "redis",
           "version": "latest",
           "required": false,
-          "persistent": true
+          "persistent": true,
+          "as": "REDIS"
         }
       }
     }
