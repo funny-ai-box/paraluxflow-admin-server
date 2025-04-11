@@ -1,7 +1,7 @@
 """认证API接口"""
 
 from flask import Blueprint, request, g, current_app
-from app.core.responses import success_response
+from app.core.responses import error_response, success_response
 from app.core.exceptions import ValidationException, AuthenticationException
 from app.domains.auth.services.auth_service import AuthService
 from app.infrastructure.database.repositories.auth_repository import AuthRepository
@@ -29,37 +29,37 @@ def get_public_key():
 def register():
     """手机号密码注册"""
     # 验证请求数据
-    data = request.get_json()
-    if not data:
-        raise ValidationException("请求数据不能为空")
+    # data = request.get_json()
+    # if not data:
+    #     raise ValidationException("请求数据不能为空")
     
-    # 检查必要字段
-    if "phone" not in data or "password" not in data:
-        raise ValidationException("缺少必要参数: phone, password")
+    # # 检查必要字段
+    # if "phone" not in data or "password" not in data:
+    #     raise ValidationException("缺少必要参数: phone, password")
     
-    phone = data.get("phone")
-    print(phone)
-    encrypted_password = data.get("password")
-    print(encrypted_password)
-    username = data.get("username")  # 可选
+    # phone = data.get("phone")
+    # print(phone)
+    # encrypted_password = data.get("password")
+    # print(encrypted_password)
+    # username = data.get("username")  # 可选
 
     
-    # 初始化存储库和服务
-    db_session = get_db_session()
+    # # 初始化存储库和服务
+    # db_session = get_db_session()
  
-    auth_repo = AuthRepository(db_session)
-    user_repo = UserRepository(db_session)
-    auth_service = AuthService(auth_repo, user_repo)
+    # auth_repo = AuthRepository(db_session)
+    # user_repo = UserRepository(db_session)
+    # auth_service = AuthService(auth_repo, user_repo)
     
     
   
-    result = auth_service.register_with_phone_password(
-        phone=phone,
-        encrypted_password=encrypted_password,
-        username=username
-        )
+    # result = auth_service.register_with_phone_password(
+    #     phone=phone,
+    #     encrypted_password=encrypted_password,
+    #     username=username
+    #     )
     
-    return success_response(result, "注册成功")
+    return error_response(60001, "不支持注册")
  
 @auth_bp.route("/login", methods=["POST"])
 
