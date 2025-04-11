@@ -16,7 +16,7 @@ class Config:
     
     # JWT配置
     JWT_SECRET_KEY = "jwt-secret-key"
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=144)
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
     
     # 文件上传配置
     UPLOAD_FOLDER = "uploads"
@@ -66,7 +66,7 @@ class DevelopmentConfig(Config):
 class TestingConfig(Config):
     """测试环境配置"""
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = "mysql+pymysql://paraluxflow:123456@localhost/paraluxflow"
+    SQLALCHEMY_DATABASE_URI = "mysql+pymysql://1"
 
 class ProductionConfig(Config):
     """生产环境配置"""
