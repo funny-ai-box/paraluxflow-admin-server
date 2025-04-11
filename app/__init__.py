@@ -40,6 +40,8 @@ def create_app(config_class=Config):
     except Exception as e:
         app.logger.error(f"注册命令失败: {str(e)}")
     
+
+    
     @app.route('/health')
     def health_check():
         """健康检查路由"""
@@ -50,10 +52,8 @@ def create_app(config_class=Config):
 def register_extensions(app):
     """注册Flask扩展"""
     db.init_app(app)
-    try:
-        migrate.init_app(app, db)
-    except Exception as e:
-        app.logger.error(f"Migrate初始化失败: {str(e)}")
+    # 注释掉Migrate初始化，显式禁用迁移
+    # migrate.init_app(app, db)
     cors.init_app(app)
     jwt.init_app(app)
     return None
