@@ -18,6 +18,7 @@ RUN mkdir -p /app/logs
 # 设置环境变量
 ENV FLASK_APP=wsgi.py
 ENV FLASK_ENV=production
+ENV TZ=Asia/Shanghai
 
 # 暴露端口
 EXPOSE 8000

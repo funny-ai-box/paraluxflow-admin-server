@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import secrets
 import uuid
+import pytz
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
@@ -45,12 +46,17 @@ def generate_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = No
     """
     payload = data.copy()
     
+    # 使用UTC时间确保服务器时区一致性
     if expires_delta:
-        expire = datetime.now() + expires_delta
+        expire = datetime.now(tz=pytz.UTC) + expires_delta
     else:
-        expire = datetime.now() + timedelta(hours=24)
+        expire = datetime.now(tz=pytz.UTC) + timedelta(hours=24)
     
-    payload.update({"exp": expire})
+    # 添加标准声明
+    payload.update({
+        "exp": expire,
+        "iat": datetime.now(tz=pytz.UTC)  # 添加签发时间
+    })
     
     secret_key = current_app.config.get('JWT_SECRET_KEY')
     return jwt.encode(payload, secret_key, algorithm="HS256")
