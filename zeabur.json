@@ -1,0 +1,23 @@
+{
+      "build": {
+        "dockerfile": "./Dockerfile"
+      },
+      "deploy": {
+        "startCommand": "/app/start.sh",
+        "healthCheck": {
+          "path": "/api/v1/auth/public_key",
+          "port": "$PORT"
+        }
+      },
+      "dependencies": {
+        "mysql": {
+          "type": "mysql",
+          "version": "8.0"
+        },
+        "redis": {
+          "type": "redis",
+          "version": "latest",
+          "required": false
+        }
+      }
+    }

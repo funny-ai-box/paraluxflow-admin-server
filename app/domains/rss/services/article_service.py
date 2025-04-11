@@ -1,12 +1,15 @@
-# app/domains/rss/services/article_service.py
-"""文章服务实现"""
 import re
 import logging
 import time
+import warnings
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 import requests
 from urllib.parse import urlparse
+
+# 禁用不安全的HTTPS警告
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,11 @@ class ArticleService:
         self.article_repo = article_repo
         self.content_repo = content_repo
         self.feed_repo = feed_repo
+        # HTTP代理配置
+        self.proxy_config = {
+            "proxy_url": "http://178.128.115.155:8118",
+            "enabled": True  # 默认启用代理，但在连接失败时会自动尝试不使用代理
+        }
     
     def get_articles(self, page: int = 1, per_page: int = 10, filters: Dict = None) -> Dict[str, Any]:
         """获取文章列表
@@ -83,8 +91,11 @@ class ArticleService:
         if not feed_url:
             raise Exception("Feed URL不存在")
         
+        # 根据feed的use_proxy字段决定是否使用代理
+        use_proxy = bool(feed.get("use_proxy", False))
+        
         # 获取Feed条目
-        entries, error = self._get_feed_entries(feed_url)
+        entries, error = self._get_feed_entries(feed_url, use_proxy)
         if error:
             # 更新Feed获取状态为失败
             self.feed_repo.update_feed_fetch_status(feed_id, 2, error)
@@ -173,37 +184,65 @@ class ArticleService:
         Returns:
             (图片内容, MIME类型, 错误信息)
         """
-        try:
-            # 设置请求头
-            parsed_url = urlparse(image_url)
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Referer": f"{parsed_url.scheme}://{parsed_url.netloc}",
-                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
-            }
+        # 尝试使用代理和不使用代理两种方式
+        for use_proxy in [True, False]:
+            try:
+                # 设置请求头
+                parsed_url = urlparse(image_url)
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                    "Referer": f"{parsed_url.scheme}://{parsed_url.netloc}",
+                    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+                }
+                
+                # 设置代理
+                proxies = None
+                if use_proxy:
+                    proxies = {"http": self.proxy_config["proxy_url"], "https": self.proxy_config["proxy_url"]}
+                    logger.info(f"尝试使用代理获取图片: {image_url}")
+                else:
+                    logger.info(f"尝试直接获取图片（不使用代理）: {image_url}")
+                
+                # 禁用SSL验证，解决SSL错误问题
+                verify_ssl = False
+                
+                # 获取图片内容
+                response = requests.get(
+                    image_url, 
+                    headers=headers, 
+                    proxies=proxies, 
+                    stream=True, 
+                    timeout=20, 
+                    verify=verify_ssl
+                )
+                response.raise_for_status()
+                
+                # 获取MIME类型
+                mime_type = response.headers.get('content-type', 'image/jpeg')
+                
+                return response.content, mime_type, None
+                
+            except requests.RequestException as e:
+                error_msg = f"获取图片失败 {'(使用代理)' if use_proxy else '(不使用代理)'}: {str(e)}"
+                logger.warning(error_msg)
+                # 如果使用代理失败，会尝试下一个循环（不使用代理）
+                # 如果不使用代理也失败，将在循环结束后返回错误
             
-            # 获取图片内容
-            response = requests.get(image_url, headers=headers, stream=True, timeout=30)
-            response.raise_for_status()
-            
-            # 获取MIME类型
-            mime_type = response.headers.get('content-type', 'image/jpeg')
-            
-            return response.content, mime_type, None
-        except requests.RequestException as e:
-            error_msg = f"获取图片失败: {str(e)}"
-            logger.error(error_msg)
-            return b"", "image/jpeg", error_msg
-        except Exception as e:
-            error_msg = f"处理图片失败: {str(e)}"
-            logger.error(error_msg)
-            return b"", "image/jpeg", error_msg
+            except Exception as e:
+                error_msg = f"处理图片失败 {'(使用代理)' if use_proxy else '(不使用代理)'}: {str(e)}"
+                logger.warning(error_msg)
+        
+        # 如果两种方式都失败了
+        error_msg = f"所有获取图片的尝试都失败: {image_url}"
+        logger.error(error_msg)
+        return b"", "image/jpeg", error_msg
     
-    def get_content_from_url(self, url: str) -> Tuple[Dict[str, Any], Optional[str]]:
+    def get_content_from_url(self, url: str, use_proxy: bool = False) -> Tuple[Dict[str, Any], Optional[str]]:
         """从URL获取文章内容
         
         Args:
             url: 文章URL
+            use_proxy: 是否使用代理
             
         Returns:
             (内容信息, 错误信息)
@@ -217,8 +256,18 @@ class ArticleService:
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
             }
             
+            # 设置代理
+            proxies = None
+            verify_ssl = True  # 默认验证SSL
+            
+            if use_proxy:
+                proxies = {"http": self.proxy_config["proxy_url"], "https": self.proxy_config["proxy_url"]}
+                # 当使用代理时禁用SSL验证，解决SSL错误问题
+                verify_ssl = False
+                logger.info(f"使用代理获取内容: {url}, SSL验证: {verify_ssl}")
+            
             # 获取文章页面
-            response = requests.get(url, headers=headers, timeout=30)
+            response = requests.get(url, headers=headers, proxies=proxies, timeout=30, verify=verify_ssl)
             response.raise_for_status()
             
             # 获取内容类型
@@ -249,72 +298,156 @@ class ArticleService:
             logger.error(error_msg)
             return {}, error_msg
     
-    def _get_feed_entries(self, feed_url: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    def _get_feed_entries(self, feed_url: str, use_proxy: bool = False) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         """获取Feed条目
         
         Args:
             feed_url: Feed URL
+            use_proxy: 是否使用代理
             
         Returns:
             (Feed条目列表, 错误信息)
         """
         try:
             import feedparser
-            # 设置请求头
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"
-            }
+            import random
+            import socket
+            import time
+            from requests.exceptions import ConnectionError, ConnectTimeout, ReadTimeout, SSLError
             
-            # 获取RSS内容
-            response = requests.get(feed_url, headers=headers, timeout=30)
-            response.raise_for_status()
+            # 增加UA列表，减少被识别为爬虫的可能性
+            user_agents = [
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0",
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1"
+            ]
             
-            # 解析Feed
-            feed = feedparser.parse(response.content)
+            # 如果需要使用代理，最大尝试次数为10次
+            # 如果不需要使用代理，则最大尝试次数为3次
+            max_retries = 10 if use_proxy else 3
             
-            if feed.bozo and not feed.entries:
-                return [], f"Feed解析错误: {feed.bozo_exception}"
-            
-            # 提取条目
-            entries = []
-            for entry in feed.entries:
-                # 处理发布日期
-                published_date = entry.get('published_parsed') or entry.get('updated_parsed')
-                if published_date:
-                    published_date = datetime(*published_date[:6])
-                else:
-                    published_date = datetime.now()
+            for attempt in range(max_retries):
+                # 随机选择UA
+                user_agent = random.choice(user_agents)
                 
-                # 处理摘要
-                summary = entry.get('summary', '')
-                if not summary and 'content' in entry:
-                    for content in entry.content:
-                        if content.get('type') == 'text/html':
-                            summary = content.value
-                            break
+                try:
+                    # 如果要求使用代理，则强制使用代理
+                    if use_proxy:
+                        # 只使用HTTP代理方式
+                        headers = {
+                            "User-Agent": user_agent,
+                            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"
+                        }
+                        
+                        proxies = {"http": self.proxy_config["proxy_url"], "https": self.proxy_config["proxy_url"]}
+                        verify_ssl = False
+                        logger.info(f"尝试 #{attempt+1}: 使用HTTP代理获取Feed: {feed_url}")
+                        
+                        # 设置较短的超时时间，以便快速失败并尝试下一次
+                        response = requests.get(
+                            feed_url, 
+                            headers=headers, 
+                            proxies=proxies, 
+                            timeout=15,
+                            verify=verify_ssl
+                        )
+                        response.raise_for_status()
+                        content = response.content
+                    else:
+                        # 不使用代理的情况下直接获取
+                        headers = {
+                            "User-Agent": user_agent,
+                            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"
+                        }
+                        logger.info(f"尝试 #{attempt+1}: 直接获取Feed（无代理）: {feed_url}")
+                        response = requests.get(feed_url, headers=headers, timeout=30)
+                        response.raise_for_status()
+                        content = response.content
+                    
+                    # 如果内容为空，抛出异常
+                    if not content or len(content) < 10:  # 至少应该有一些基本的XML结构
+                        raise Exception("获取到的内容为空或太小")
+                    
+                    # 解析Feed
+                    feed = feedparser.parse(content)
+                    
+                    # 检查feed是否有有效内容
+                    if not hasattr(feed, 'entries') or len(feed.entries) == 0:
+                        if feed.bozo and hasattr(feed, 'bozo_exception'):
+                            logger.warning(f"Feed解析警告: {feed.bozo_exception}")
+                            # 特殊处理：某些Feed即使有bozo异常也可能部分有效
+                            if hasattr(feed, 'entries') and len(feed.entries) > 0:
+                                logger.info("尽管有解析警告，但Feed仍包含有效条目，继续处理")
+                            else:
+                                raise Exception(f"Feed解析错误: {feed.bozo_exception}")
+                        else:
+                            raise Exception("Feed没有任何条目")
+                    
+                    # 提取条目
+                    entries = []
+                    for entry in feed.entries:
+                        # 处理发布日期
+                        published_date = entry.get('published_parsed') or entry.get('updated_parsed')
+                        if published_date:
+                            published_date = datetime(*published_date[:6])
+                        else:
+                            published_date = datetime.now()
+                        
+                        # 处理摘要
+                        summary = entry.get('summary', '')
+                        if not summary and 'content' in entry:
+                            for content in entry.content:
+                                if content.get('type') == 'text/html':
+                                    summary = content.value
+                                    break
+                        
+                        # 处理缩略图
+                        thumbnail_url = None
+                        if 'media_thumbnail' in entry:
+                            for thumbnail in entry.media_thumbnail:
+                                thumbnail_url = thumbnail.get('url')
+                                if thumbnail_url:
+                                    break
+                        
+                        entries.append({
+                            "title": entry.get('title', '无标题'),
+                            "link": entry.get('link', ''),
+                            "summary": summary,
+                            "thumbnail_url": thumbnail_url,
+                            "published_date": published_date.isoformat()
+                        })
+                    
+                    logger.info(f"成功获取Feed条目: {feed_url}, 条目数: {len(entries)}")
+                    return entries, None
+                    
+                except (ConnectionError, ConnectTimeout, ReadTimeout, socket.timeout, ConnectionResetError, SSLError) as e:
+                    # 网络连接问题
+                    error_type = type(e).__name__
+                    error_msg = f"{error_type} 错误 #{attempt+1}: {str(e)}"
+                    logger.warning(error_msg)
+                    
+                    # 增加随机等待时间再尝试
+                    wait_time = random.uniform(1.5, 4.0)
+                    logger.info(f"等待 {wait_time:.2f} 秒后重试...")
+                    time.sleep(wait_time)
                 
-                # 处理缩略图
-                thumbnail_url = None
-                if 'media_thumbnail' in entry:
-                    for thumbnail in entry.media_thumbnail:
-                        thumbnail_url = thumbnail.get('url')
-                        if thumbnail_url:
-                            break
-                
-                entries.append({
-                    "title": entry.get('title', '无标题'),
-                    "link": entry.get('link', ''),
-                    "summary": summary,
-                    "thumbnail_url": thumbnail_url,
-                    "published_date": published_date.isoformat()
-                })
+                except Exception as e:
+                    error_msg = f"获取Feed尝试 #{attempt+1} 失败: {str(e)}"
+                    logger.warning(error_msg)
+                    # 继续下一个尝试
+                    time.sleep(random.uniform(0.5, 2.0))  # 随机等待时间，避免请求模式被识别
             
-            return entries, None
-        except requests.RequestException as e:
-            error_msg = f"获取Feed失败: {str(e)}"
-            logger.error(error_msg)
+            # 如果所有尝试都失败
+            error_msg = "所有获取Feed的尝试都失败"
+            if use_proxy:
+                error_msg += "（使用代理）"
+            else:
+                error_msg += "（不使用代理）"
+            
             return [], error_msg
+            
         except Exception as e:
             error_msg = f"解析Feed失败: {str(e)}"
             logger.error(error_msg)
