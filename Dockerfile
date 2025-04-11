@@ -9,12 +9,7 @@ RUN apt-get update && apt-get install -y default-libmysqlclient-dev build-essent
 # 复制项目文件
 COPY . .
 
-# 安装依赖
-RUN pip install --no-cache-dir poetry && \
-    poetry config virtualenvs.create false && \
-    poetry install --no-dev
-
-# 如果遇到依赖问题，可以转而使用requirements.txt
+# 直接使用requirements.txt安装依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 创建日志目录
