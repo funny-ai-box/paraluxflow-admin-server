@@ -4,12 +4,12 @@ from flask import Blueprint
 rss_bp = Blueprint("rss", __name__)
 
 # 导入各个子模块蓝图
-from app.api.v1.rss.feed import feed_bp
-from app.api.v1.rss.article import article_bp
-from app.api.v1.rss.script import script_bp
-from app.api.v1.rss.crawler import crawler_bp
-from app.api.v1.rss.agent import agent_bp
-from app.api.v1.rss.sync import sync_bp
+from app.api.admin.v1.rss.feed import feed_bp
+from app.api.admin.v1.rss.article import article_bp
+from app.api.admin.v1.rss.script import script_bp
+from app.api.admin.v1.rss.crawler import crawler_bp
+from app.api.admin.v1.rss.agent import agent_bp
+from app.api.admin.v1.rss.sync import sync_bp
 
 # 注册各个子模块蓝图
 rss_bp.register_blueprint(feed_bp, url_prefix="/feed")
