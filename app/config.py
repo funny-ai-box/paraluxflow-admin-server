@@ -47,6 +47,18 @@ class Config:
     RSA_KEY_SIZE = 2048
     RSA_PRIVATE_KEY = None  # 将在应用初始化时设置
     RSA_PUBLIC_KEY = None   # 将在应用初始化时设置
+
+    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "your-client-id")
+    GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "your-client-secret")
+    # Firebase配置
+    FIREBASE_CONFIG = os.environ.get("FIREBASE_CONFIG_FILE",'firebase.json')  # 服务账号密钥文件路径
+    FIREBASE_API_KEY = os.environ.get("FIREBASE_API_KEY")     # Firebase Web API密钥
+    FIREBASE_AUTH_DOMAIN = os.environ.get("FIREBASE_AUTH_DOMAIN")
+    FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID")
+    FIREBASE_APP_ID = os.environ.get("FIREBASE_APP_ID")
+
+    # 前端回调配置
+    FRONTEND_CALLBACK_URL = os.environ.get("FRONTEND_CALLBACK_URL", "app://auth-callback")
     
     # 从环境变量加载配置
     @classmethod

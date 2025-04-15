@@ -5,7 +5,7 @@ from app.core.responses import success_response
 from app.core.exceptions import ValidationException, AuthenticationException
 from app.domains.auth.services.auth_service import AuthService
 from app.infrastructure.database.repositories.auth_repository import AuthRepository
-from app.infrastructure.database.repositories.user_repository import UserRepository
+from app.infrastructure.database.repositories.admin_user_repository import UserRepository
 from app.infrastructure.database.session import get_db_session
 
 auth_bp = Blueprint("auth", __name__)

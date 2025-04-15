@@ -21,7 +21,7 @@ from app.core.status_codes import (
     USER_ALREADY_EXISTS,
 )
 from app.infrastructure.database.repositories.auth_repository import AuthRepository
-from app.infrastructure.database.repositories.user_repository import UserRepository
+from app.infrastructure.database.repositories.admin_user_repository import UserRepository
 from app.utils.rsa_util import decrypt_with_private_key
 
 logger = logging.getLogger(__name__)

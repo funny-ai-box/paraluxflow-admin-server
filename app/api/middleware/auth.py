@@ -5,7 +5,7 @@ import jwt
 import time
 from app.core.exceptions import AuthenticationException
 from app.core.status_codes import UNAUTHORIZED, TOKEN_EXPIRED, INVALID_TOKEN
-from app.infrastructure.database.repositories.user_repository import UserRepository
+from app.infrastructure.database.repositories.admin_user_repository import UserRepository
 from app.infrastructure.database.session import get_db_session
 
 def auth_required(f):
