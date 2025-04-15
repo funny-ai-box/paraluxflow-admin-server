@@ -1,11 +1,14 @@
 # app/api/jobs/rss.py
 """RSS源同步任务API接口"""
 import logging
+import threading
+from app.infrastructure.database.session import get_db_session
 from flask import Blueprint, request, current_app
 from app.api.middleware.app_key_auth import app_key_required
 from app.core.responses import success_response, error_response
 from app.core.status_codes import PARAMETER_ERROR
-from app.infrastructure.database.session import get_db_session
+from app.extensions import db  # 导入 SQLAlchemy 实例
+import uuid
 
 # 仓库导入
 from app.infrastructure.database.repositories.rss_feed_repository import RssFeedRepository
@@ -22,15 +25,76 @@ logger = logging.getLogger(__name__)
 # 创建RSS任务蓝图
 rss_jobs_bp = Blueprint("rss_jobs", __name__)
 
+def run_sync_task(app_config, triggered_by="schedule"):
+    """在单独的线程中运行同步任务
+    
+    Args:
+        app_config: 应用配置
+        triggered_by: 触发方式
+    """
+    print("\n===== 异步RSS同步任务开始 =====")
+    
+    # 使用独立的数据库会话
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker, scoped_session
+    
+    try:
+        # 从配置中获取数据库 URL
+        db_url = app_config.get("SQLALCHEMY_DATABASE_URI")
+        print(f"创建数据库引擎，URL: {db_url[:20]}...")
+        
+        # 创建引擎和会话
+        engine = create_engine(db_url)
+        session_factory = sessionmaker(bind=engine)
+        db_session = scoped_session(session_factory)()
+        
+        print("异步任务数据库会话创建成功")
+        
+        # 创建仓库
+        feed_repo = RssFeedRepository(db_session)
+        article_repo = RssFeedArticleRepository(db_session)
+        content_repo = RssFeedArticleContentRepository(db_session)
+        sync_log_repo = RssSyncLogRepository(db_session)
+        print("异步任务仓库初始化完成")
+        
+        # 创建服务
+        article_service = ArticleService(article_repo, content_repo, feed_repo)
+        sync_service = SyncService(feed_repo, article_service, sync_log_repo)
+        print("异步任务服务初始化完成")
+        
+        # 生成同步ID
+        sync_id = str(uuid.uuid4())
+        
+        # 同步所有激活的Feed
+        print(f"异步任务开始执行同步，同步ID: {sync_id}")
+        result = sync_service.sync_all_active_feeds(triggered_by)
+        
+        # 记录同步结果
+        logger.info(f"异步RSS源同步完成: 成功同步{result['synced_feeds']}个源，失败{result['failed_feeds']}个源，共{result['total_articles']}篇文章，耗时{result['total_time']}秒")
+        print(f"异步RSS源同步完成: 成功同步{result['synced_feeds']}个源，失败{result['failed_feeds']}个源，共{result['total_articles']}篇文章，耗时{result['total_time']}秒")
+    except Exception as e:
+        error_msg = f"异步RSS源同步失败: {str(e)}"
+        print(error_msg)
+        logger.error(error_msg)
+        import traceback
+        print(traceback.format_exc())  # 打印完整堆栈跟踪
+    finally:
+        # 确保会话在任务结束时关闭
+        if 'db_session' in locals():
+            db_session.close()
+            print("异步任务数据库会话已关闭")
+        print("===== 异步RSS同步任务结束 =====")
+
 @rss_jobs_bp.route("/sync_all", methods=["POST"])
 @app_key_required
 def sync_all_feeds():
-    """同步所有激活状态的RSS源文章
+    """异步同步所有激活状态的RSS源文章
     
     该API由定时任务调用，定期同步所有激活的RSS源
+    同步任务将在后台线程中执行，API立即返回任务已启动
     
     Returns:
-        同步结果
+        任务启动结果
     """
     print("\n===== RSS同步任务API触发 =====")
     try:
@@ -39,33 +103,32 @@ def sync_all_feeds():
         triggered_by = data.get("triggered_by", "schedule")
         print(f"触发方式: {triggered_by}")
         
-        # 创建数据库会话
-        db_session = get_db_session()
-        print("数据库会话创建成功")
+        # 创建一个同步ID（实际实现可以记录到数据库中以便查询进度）
+        sync_id = str(uuid.uuid4())
         
-        # 创建仓库
-        feed_repo = RssFeedRepository(db_session)
-        article_repo = RssFeedArticleRepository(db_session)
-        content_repo = RssFeedArticleContentRepository(db_session)
-        sync_log_repo = RssSyncLogRepository(db_session)
-        print("仓库初始化完成")
+        # 获取应用程序配置的副本，以便传递给异步任务
+        app_config = current_app.config.copy()
         
-        # 创建服务
-        article_service = ArticleService(article_repo, content_repo, feed_repo)
-        sync_service = SyncService(feed_repo, article_service, sync_log_repo)
-        print("服务初始化完成")
+        # 创建一个线程来执行同步任务
+        sync_thread = threading.Thread(
+            target=run_sync_task,
+            args=(app_config, triggered_by),
+            daemon=True  # 设置为守护线程，这样主程序退出时不会被阻塞
+        )
         
-        # 同步所有激活的Feed
-        print("开始执行同步...")
-        result = sync_service.sync_all_active_feeds(triggered_by)
+        # 启动线程
+        sync_thread.start()
+        print(f"同步任务已在后台启动，线程ID: {sync_thread.ident}")
         
-        # 记录同步结果
-        logger.info(f"RSS源同步完成: 成功同步{result['synced_feeds']}个源，失败{result['failed_feeds']}个源，共{result['total_articles']}篇文章，耗时{result['total_time']}秒")
-        print(f"RSS源同步完成: 成功同步{result['synced_feeds']}个源，失败{result['failed_feeds']}个源，共{result['total_articles']}篇文章，耗时{result['total_time']}秒")
-        
-        return success_response(result, "同步完成")
+        # 立即返回结果
+        return success_response({
+            "sync_id": sync_id,
+            "status": "started",
+            "message": "同步任务已在后台启动",
+            "triggered_by": triggered_by
+        }, "同步任务已开始")
     except Exception as e:
-        error_msg = f"RSS源同步失败: {str(e)}"
+        error_msg = f"启动RSS源同步任务失败: {str(e)}"
         print(error_msg)
         logger.error(error_msg)
         return error_response(PARAMETER_ERROR, error_msg)
@@ -86,6 +149,7 @@ def get_sync_logs():
     Returns:
         同步日志列表
     """
+    # 此函数保持不变
     print("\n===== 获取RSS同步日志 =====")
     try:
         # 获取分页参数
@@ -126,4 +190,3 @@ def get_sync_logs():
         print(error_msg)
         logger.error(error_msg)
         return error_response(PARAMETER_ERROR, error_msg)
-
