@@ -1,4 +1,4 @@
-# app/api/jobs/rss.py (Updated version)
+# app/api/jobs/rss.py (Alternative Implementation)
 """RSS源同步任务API接口"""
 import logging
 import threading
@@ -6,7 +6,7 @@ from flask import Blueprint, request, current_app
 from app.api.middleware.app_key_auth import app_key_required
 from app.core.responses import success_response, error_response
 from app.core.status_codes import PARAMETER_ERROR
-from app.infrastructure.database.session import get_db_session
+from app.extensions import db
 
 # 仓库导入
 from app.infrastructure.database.repositories.rss_feed_repository import RssFeedRepository
@@ -23,54 +23,85 @@ logger = logging.getLogger(__name__)
 # 创建RSS任务蓝图
 rss_jobs_bp = Blueprint("rss_jobs", __name__)
 
-def run_sync_task(triggered_by):
+def run_sync_task(app, triggered_by, sync_id=None):
     """在后台线程中运行同步任务
     
     Args:
+        app: Flask应用实例（用于创建应用上下文）
         triggered_by: 触发方式
+        sync_id: 同步任务ID（如果已创建）
     """
     print(f"\n===== 开始后台RSS同步任务 (触发方式: {triggered_by}) =====")
-    try:
-        # 创建数据库会话 (注意: 后台线程需要新的数据库会话)
-        db_session = get_db_session()
-        print("后台任务数据库会话创建成功")
+    
+    # 导入必要的模块
+    import uuid
+    from datetime import datetime
+    
+    # 使用应用上下文，确保current_app可用
+    with app.app_context():
+        # 使用独立的数据库会话
+        db_session = db.session
         
-        # 创建仓库
-        feed_repo = RssFeedRepository(db_session)
-        article_repo = RssFeedArticleRepository(db_session)
-        content_repo = RssFeedArticleContentRepository(db_session)
-        sync_log_repo = RssSyncLogRepository(db_session)
-        print("后台任务仓库初始化完成")
-        
-        # 创建服务
-        article_service = ArticleService(article_repo, content_repo, feed_repo)
-        sync_service = SyncService(feed_repo, article_service, sync_log_repo)
-        print("后台任务服务初始化完成")
-        
-        # 同步所有激活的Feed
-        print("开始执行同步...")
-        result = sync_service.sync_all_active_feeds(triggered_by)
-        
-        # 记录同步结果
-        logger.info(f"RSS源同步完成: 成功同步{result['synced_feeds']}个源，失败{result['failed_feeds']}个源，共{result['total_articles']}篇文章，耗时{result['total_time']}秒")
-        print(f"RSS源同步完成: 成功同步{result['synced_feeds']}个源，失败{result['failed_feeds']}个源，共{result['total_articles']}篇文章，耗时{result['total_time']}秒")
-        
-        # 关闭数据库会话
-        db_session.close()
-        print("后台任务数据库会话已关闭")
-        
-    except Exception as e:
-        error_msg = f"后台RSS源同步任务失败: {str(e)}"
-        print(error_msg)
-        logger.error(error_msg)
-        
-        # 尝试关闭数据库会话
         try:
-            if db_session:
-                db_session.close()
-                print("后台任务数据库会话已关闭")
-        except:
-            pass
+            print("后台任务数据库会话创建成功")
+            
+            # 创建仓库
+            feed_repo = RssFeedRepository(db_session)
+            article_repo = RssFeedArticleRepository(db_session)
+            content_repo = RssFeedArticleContentRepository(db_session)
+            sync_log_repo = RssSyncLogRepository(db_session)
+            print("后台任务仓库初始化完成")
+            
+            # 创建服务
+            article_service = ArticleService(article_repo, content_repo, feed_repo)
+            sync_service = SyncService(feed_repo, article_service, sync_log_repo)
+            print("后台任务服务初始化完成")
+            
+            # 如果没有提供sync_id，创建新的同步日志
+            if not sync_id:
+                sync_id = str(uuid.uuid4())
+            
+            # 创建同步日志
+            log_data = {
+                "sync_id": sync_id,
+                "total_feeds": 0,  # 将在后续更新
+                "synced_feeds": 0,
+                "failed_feeds": 0,
+                "total_articles": 0,
+                "status": 0,  # 进行中
+                "start_time": datetime.now(),
+                "triggered_by": triggered_by,
+                "details": {"feeds": []}
+            }
+            
+            err, log = sync_log_repo.create_log(log_data)
+            if err:
+                print(f"警告: 创建同步日志失败: {err}")
+            else:
+                print(f"同步日志创建成功: {sync_id}")
+                db_session.commit()
+            
+            # 同步所有激活的Feed
+            print(f"开始执行同步... (同步ID: {sync_id})")
+            result = sync_service.sync_all_active_feeds(triggered_by)
+            
+            # 记录同步结果
+            logger.info(f"RSS源同步完成: 成功同步{result['synced_feeds']}个源，失败{result['failed_feeds']}个源，共{result['total_articles']}篇文章，耗时{result['total_time']}秒")
+            print(f"RSS源同步完成: 成功同步{result['synced_feeds']}个源，失败{result['failed_feeds']}个源，共{result['total_articles']}篇文章，耗时{result['total_time']}秒")
+            
+            # 每个操作后提交，确保变更已保存
+            db_session.commit()
+            
+        except Exception as e:
+            error_msg = f"后台RSS源同步任务失败: {str(e)}"
+            print(error_msg)
+            logger.error(error_msg)
+            
+            # 尝试回滚数据库事务
+            try:
+                db_session.rollback()
+            except Exception as rollback_err:
+                print(f"回滚数据库事务失败: {str(rollback_err)}")
 
 @rss_jobs_bp.route("/sync_all", methods=["POST"])
 @app_key_required
@@ -89,39 +120,19 @@ def sync_all_feeds():
         triggered_by = data.get("triggered_by", "schedule")
         print(f"触发方式: {triggered_by}")
         
-        # 创建数据库会话，只用于创建初始同步日志
-        db_session = get_db_session()
-        
-        # 创建同步日志仓库
-        sync_log_repo = RssSyncLogRepository(db_session)
-        
-        # 创建初始同步日志（状态为进行中）
+        # 导入必要模块
         import uuid
         from datetime import datetime
         
+        # 生成同步ID
         sync_id = str(uuid.uuid4())
-        log_data = {
-            "sync_id": sync_id,
-            "total_feeds": 0,  # 将在后台任务中更新
-            "synced_feeds": 0,
-            "failed_feeds": 0,
-            "total_articles": 0,
-            "status": 0,  # 进行中
-            "start_time": datetime.now(),
-            "triggered_by": triggered_by,
-            "details": {"feeds": []}
-        }
         
-        err, log = sync_log_repo.create_log(log_data)
-        if err:
-            print(f"警告: 创建同步日志失败: {err}")
-            sync_id = None
-        
-        # 关闭初始数据库会话
-        db_session.close()
+        # 获取当前Flask应用实例
+        app = current_app._get_current_object()
         
         # 启动后台线程执行同步任务
-        sync_thread = threading.Thread(target=run_sync_task, args=(triggered_by,))
+        # 传递app对象以在线程中创建应用上下文
+        sync_thread = threading.Thread(target=run_sync_task, args=(app, triggered_by, sync_id))
         sync_thread.daemon = True  # 设置为守护线程，避免阻塞主程序退出
         sync_thread.start()
         
@@ -181,8 +192,8 @@ def get_sync_logs():
         
         print(f"筛选条件: {filters}")
         
-        # 创建数据库会话
-        db_session = get_db_session()
+        # 使用请求上下文中的数据库会话
+        db_session = db.session
         
         # 创建仓库
         sync_log_repo = RssSyncLogRepository(db_session)
@@ -191,12 +202,43 @@ def get_sync_logs():
         logs = sync_log_repo.get_logs(page, per_page, filters)
         print(f"获取到 {len(logs['list'])} 条日志记录，总计 {logs['total']} 条")
         
-        # 关闭数据库会话
-        db_session.close()
-        
         return success_response(logs, "获取同步日志成功")
     except Exception as e:
         error_msg = f"获取同步日志失败: {str(e)}"
+        print(error_msg)
+        logger.error(error_msg)
+        return error_response(PARAMETER_ERROR, error_msg)
+
+@rss_jobs_bp.route("/sync_log/<string:sync_id>", methods=["GET"])
+@app_key_required
+def get_sync_log_detail(sync_id):
+    """获取RSS同步日志详情
+    
+    Args:
+        sync_id: 同步任务ID
+    
+    Returns:
+        同步日志详情
+    """
+    print(f"\n===== 获取RSS同步日志详情 [ID: {sync_id}] =====")
+    try:
+        # 使用请求上下文中的数据库会话
+        db_session = db.session
+        
+        # 创建仓库
+        sync_log_repo = RssSyncLogRepository(db_session)
+        
+        # 获取日志详情
+        err, log = sync_log_repo.get_log_by_sync_id(sync_id)
+        if err:
+            print(f"获取日志详情失败: {err}")
+            return error_response(PARAMETER_ERROR, err)
+        
+        print(f"获取日志详情成功: 同步ID={log['sync_id']}, 状态={log['status']}")
+        
+        return success_response(log, "获取同步日志详情成功")
+    except Exception as e:
+        error_msg = f"获取同步日志详情失败: {str(e)}"
         print(error_msg)
         logger.error(error_msg)
         return error_response(PARAMETER_ERROR, error_msg)
