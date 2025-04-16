@@ -8,7 +8,7 @@ from sqlalchemy import and_, or_, desc, func
 from sqlalchemy.exc import SQLAlchemyError,IntegrityError
 from sqlalchemy.orm import Session
 from datetime import datetime, date
-from app.infrastructure.database.models.hot_topics import HotTopicTask, HotTopic, HotTopicLog
+from app.infrastructure.database.models.hot_topics import HotTopicTask, HotTopic, HotTopicLog, UnifiedHotTopic
 
 logger = logging.getLogger(__name__)
 
@@ -424,6 +424,26 @@ class HotTopicRepository:
         except SQLAlchemyError as e:
             logger.error(f"获取最新热点话题失败: {str(e)}")
             return []
+    
+    def get_topics_by_ids(self, topic_ids: List[int]) -> List[Dict[str, Any]]:
+        """
+        根据ID列表获取热点话题信息
+
+        Args:
+            topic_ids: 热点话题ID列表
+
+        Returns:
+            热点话题字典列表
+        """
+        if not topic_ids:
+            return []
+        try:
+            # 使用 in_() 进行批量查询
+            topics = self.db.query(HotTopic).filter(HotTopic.id.in_(topic_ids)).all()
+            return [self._topic_to_dict(topic) for topic in topics]
+        except SQLAlchemyError as e:
+            logger.error(f"根据ID列表获取热点话题失败: {str(e)}")
+            return []
 
     def _topic_to_dict(self, topic: HotTopic) -> Dict[str, Any]:
         """将话题对象转换为字典
@@ -586,4 +606,101 @@ class HotTopicLogRepository:
             "crawler_ip": log.crawler_ip,
             "created_at": log.created_at.isoformat() if log.created_at else None,
             "updated_at": log.updated_at.isoformat() if log.updated_at else None
+        }
+    
+
+class UnifiedHotTopicRepository:
+    """统一热点话题仓库"""
+
+    def __init__(self, db_session: Session):
+        self.db = db_session
+
+    def create_unified_topic(self, data: Dict[str, Any]) -> Optional[UnifiedHotTopic]:
+        """创建单个统一热点"""
+        try:
+            unified_topic = UnifiedHotTopic(**data)
+            self.db.add(unified_topic)
+            self.db.commit()
+            self.db.refresh(unified_topic)
+            logger.info(f"成功创建统一热点: {data.get('unified_title')}")
+            return unified_topic
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error(f"创建统一热点失败: {str(e)}")
+            return None
+    def get_latest_unified_topic_date(self) -> Optional[date]:
+        """获取存在统一热点的最新日期"""
+        try:
+            latest_date = self.db.query(func.max(UnifiedHotTopic.topic_date)).scalar()
+            return latest_date
+        except SQLAlchemyError as e:
+            logger.error(f"获取最新统一热点日期失败: {str(e)}")
+            return None
+
+    def create_unified_topics_batch(self, topics_data: List[Dict[str, Any]]) -> bool:
+        """批量创建统一热点"""
+        try:
+            new_topics = [UnifiedHotTopic(**data) for data in topics_data]
+            self.db.add_all(new_topics)
+            self.db.commit()
+            logger.info(f"成功批量创建 {len(new_topics)} 个统一热点")
+            return True
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error(f"批量创建统一热点失败: {str(e)}")
+            return False
+
+    def get_unified_topics_by_date(self, topic_date: date, page: int = 1, per_page: int = 20) -> Dict[str, Any]:
+        """根据日期获取统一热点列表 (分页)"""
+        try:
+            query = self.db.query(UnifiedHotTopic).filter(UnifiedHotTopic.topic_date == topic_date)
+            
+            total = query.count()
+            
+            items = query.order_by(desc(UnifiedHotTopic.aggregated_hotness_score), desc(UnifiedHotTopic.topic_count))\
+                         .limit(per_page)\
+                         .offset((page - 1) * per_page)\
+                         .all()
+
+            pages = (total + per_page - 1) // per_page if per_page > 0 else 0
+
+            return {
+                "list": [self._topic_to_dict(topic) for topic in items],
+                "total": total,
+                "pages": pages,
+                "current_page": page,
+                "per_page": per_page
+            }
+        except SQLAlchemyError as e:
+            logger.error(f"按日期获取统一热点失败: {str(e)}")
+            return {"list": [], "total": 0, "pages": 0, "current_page": page, "per_page": per_page, "error": str(e)}
+
+    def delete_by_date(self, topic_date: date) -> bool:
+        """删除指定日期的所有统一热点 (用于重新生成)"""
+        try:
+            deleted_count = self.db.query(UnifiedHotTopic).filter(UnifiedHotTopic.topic_date == topic_date).delete()
+            self.db.commit()
+            logger.info(f"成功删除日期 {topic_date} 的 {deleted_count} 条统一热点")
+            return True
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error(f"删除日期 {topic_date} 的统一热点失败: {str(e)}")
+            return False
+            
+    def _topic_to_dict(self, topic: UnifiedHotTopic) -> Dict[str, Any]:
+        """将统一热点对象转换为字典"""
+        return {
+            "id": topic.id,
+            "topic_date": topic.topic_date.isoformat() if topic.topic_date else None,
+            "unified_title": topic.unified_title,
+            "unified_summary": topic.unified_summary,
+            "representative_url": topic.representative_url,
+            "related_topic_ids": topic.related_topic_ids, # 保持 JSON
+            "source_platforms": topic.source_platforms, # 保持 JSON
+            "aggregated_hotness_score": topic.aggregated_hotness_score,
+            "topic_count": topic.topic_count,
+            "ai_model_used": topic.ai_model_used,
+            "ai_processing_time": topic.ai_processing_time,
+            "created_at": topic.created_at.isoformat() if topic.created_at else None,
+            "updated_at": topic.updated_at.isoformat() if topic.updated_at else None
         }

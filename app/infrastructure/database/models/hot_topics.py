@@ -91,3 +91,33 @@ class HotTopicLog(db.Model):
     
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class UnifiedHotTopic(db.Model):
+    """统一热点话题模型 (由AI聚合生成)"""
+    __tablename__ = "unified_hot_topics"
+
+    id = Column(String(32), primary_key=True, default=generate_uuid, comment="统一热点ID")
+    topic_date = Column(Date, nullable=False, index=True, comment="热点所属日期")
+    
+    unified_title = Column(String(512), nullable=False, comment="AI生成的统一标题")
+    unified_summary = Column(Text, comment="AI生成的统一摘要") # 可选
+    representative_url = Column(String(1024), comment="代表性链接 (可选, AI选择或默认选择第一个)")
+    
+    # 关键字段：存储关联的原始热点ID列表 (JSON格式)
+    related_topic_ids = Column(JSON, nullable=False, comment="关联的原始HotTopic ID列表") 
+    # 存储来源平台列表 (JSON格式)
+    source_platforms = Column(JSON, nullable=False, comment="来源平台列表 (e.g., ['weibo', 'zhihu'])")
+    
+    # 聚合热度信息 (可选)
+    aggregated_hotness_score = Column(Float, comment="聚合热度分 (可选, AI计算)")
+    topic_count = Column(Integer, default=0, comment="关联的原始热点数量")
+
+    # AI 处理信息 (可选)
+    ai_model_used = Column(String(100), comment="使用的AI模型")
+    ai_processing_time = Column(Float, comment="AI处理耗时(秒)")
+
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f"<UnifiedHotTopic {self.unified_title} ({self.topic_date})>"
