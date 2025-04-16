@@ -5,9 +5,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 
 from sqlalchemy import and_, or_, desc, func
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError,IntegrityError
 from sqlalchemy.orm import Session
-
+from datetime import datetime, date
 from app.infrastructure.database.models.hot_topics import HotTopicTask, HotTopic, HotTopicLog
 
 logger = logging.getLogger(__name__)
@@ -227,25 +227,81 @@ class HotTopicRepository:
         self.db = db_session
 
     def create_topics(self, topics_data: List[Dict[str, Any]]) -> bool:
-        """批量创建热点话题
-        
-        Args:
-            topics_data: 话题数据列表
-            
-        Returns:
-            是否成功
-        """
+        """批量创建热点话题，会处理重复数据"""
         try:
-            # 批量插入热点话题
-            for data in topics_data:
-                topic = HotTopic(**data)
-                self.db.add(topic)
             
+            logger.info(f"开始创建 {len(topics_data)} 个热点话题")
+            
+            # 获取今天的日期
+            today = date.today()
+            
+            # 批量插入热点话题
+            success_count = 0
+            error_count = 0
+            
+            for data in topics_data:
+                # 如果没有提供 topic_date，使用今天的日期
+                if "topic_date" not in data:
+                    data["topic_date"] = today
+                    logger.info(f"未提供话题日期，使用今天: {today}")
+                
+                try:
+                    # 尝试创建话题
+                    topic = HotTopic(**data)
+                    self.db.add(topic)
+                    self.db.flush()  # 尝试提交但不提交事务
+                    success_count += 1
+                    logger.info(f"成功添加话题: {data.get('topic_title')}")
+                except IntegrityError as e:
+                    # 捕获重复记录错误
+                    self.db.rollback()  # 回滚当前事务
+                    logger.warning(f"话题重复，尝试更新: {data.get('topic_title')}, 错误: {str(e)}")
+                    
+                    # 查找已存在的记录
+                    existing_topic = self.db.query(HotTopic).filter(
+                        HotTopic.topic_date == data["topic_date"],
+                        HotTopic.platform == data["platform"],
+                        HotTopic.topic_title == data["topic_title"]
+                    ).first()
+                    
+                    # 如果找到已存在的记录，可以选择更新它
+                    if existing_topic:
+                        logger.info(f"找到已存在的话题，进行更新: {data.get('topic_title')}")
+                        # 更新排名、热度等信息
+                        if "rank" in data:
+                            existing_topic.rank = data["rank"]
+                        if "hot_value" in data:
+                            existing_topic.hot_value = data["hot_value"]
+                        if "rank_change" in data:
+                            existing_topic.rank_change = data["rank_change"]
+                        if "heat_level" in data:
+                            existing_topic.heat_level = data["heat_level"]
+                        if "is_hot" in data:
+                            existing_topic.is_hot = data["is_hot"]
+                        if "is_new" in data:
+                            existing_topic.is_new = data["is_new"]
+                        
+                        # 更新批次和任务信息
+                        existing_topic.task_id = data["task_id"]
+                        existing_topic.batch_id = data["batch_id"]
+                        existing_topic.crawler_id = data.get("crawler_id")
+                        existing_topic.crawl_time = data.get("crawl_time")
+                        existing_topic.updated_at = datetime.datetime.now()
+                        success_count += 1
+                    else:
+                        logger.warning(f"无法找到已存在的话题进行更新: {data.get('topic_title')}")
+                        error_count += 1
+                except Exception as e:
+                    logger.error(f"添加话题失败: {data.get('topic_title')}, 错误: {str(e)}")
+                    error_count += 1
+            
+            # 提交所有更改
+            logger.info(f"提交事务，成功: {success_count}, 失败: {error_count}")
             self.db.commit()
-            return True
-        except SQLAlchemyError as e:
+            return success_count > 0
+        except Exception as e:
             self.db.rollback()
-            logger.error(f"批量创建热点话题失败: {str(e)}")
+            logger.error(f"批量创建热点话题失败: {str(e)}", exc_info=True)
             return False
 
     def get_topics(self, filters: Dict[str, Any], page: int = 1, per_page: int = 20) -> Dict[str, Any]:
@@ -280,7 +336,18 @@ class HotTopicRepository:
                 if "keyword" in filters and filters["keyword"]:
                     query = query.filter(HotTopic.topic_title.like(f"%{filters['keyword']}%"))
                 
-                # 日期范围筛选
+                # 日期筛选
+                if "topic_date" in filters and filters["topic_date"]:
+                    from datetime import datetime
+                    try:
+                        # 尝试解析日期
+                        if isinstance(filters["topic_date"], str):
+                            topic_date = datetime.fromisoformat(filters["topic_date"].rstrip('Z')).date()
+                            query = query.filter(HotTopic.topic_date == topic_date)
+                    except (ValueError, TypeError):
+                        pass  # 忽略无效的日期格式
+                
+                # 日期范围筛选 (创建时间)
                 if "date_range" in filters and filters["date_range"]:
                     start_date, end_date = filters["date_range"]
                     if start_date:
@@ -292,7 +359,12 @@ class HotTopicRepository:
             total = query.count()
             
             # 应用排序和分页
-            topics = query.order_by(desc(HotTopic.created_at)).limit(per_page).offset((page - 1) * per_page).all()
+            # 首先按日期降序排序，然后按平台排序，最后按排名排序
+            topics = query.order_by(
+                desc(HotTopic.topic_date),
+                HotTopic.platform,
+                HotTopic.rank if HotTopic.rank is not None else 9999
+            ).limit(per_page).offset((page - 1) * per_page).all()
             
             # 计算总页数
             pages = (total + per_page - 1) // per_page if per_page > 0 else 0
@@ -315,40 +387,34 @@ class HotTopicRepository:
                 "error": str(e)
             }
 
-    def get_latest_hot_topics(self, platform: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_latest_hot_topics(self, platform: Optional[str] = None, limit: int = 50, topic_date: Optional[datetime.date] = None) -> List[Dict[str, Any]]:
         """获取最新热点话题
         
         Args:
             platform: 平台筛选
             limit: 获取数量
+            topic_date: 指定日期，默认为最新日期
             
         Returns:
             最新热点话题列表
         """
         try:
-            # 获取最新任务ID
-            latest_task_query = self.db.query(
-                HotTopicTask.task_id
-            ).filter(
-                HotTopicTask.status == 2  # 已完成
-            ).order_by(
-                desc(HotTopicTask.created_at)
-            ).limit(1)
+            # 基本查询
+            query = self.db.query(HotTopic).filter(HotTopic.status == 1)  # 有效状态
             
-            latest_task_id = latest_task_query.scalar()
-            
-            if not latest_task_id:
-                return []
-            
-            # 获取最新热点
-            query = self.db.query(HotTopic).filter(
-                HotTopic.task_id == latest_task_id,
-                HotTopic.status == 1  # 有效
-            )
-            
+            # 应用平台筛选
             if platform:
                 query = query.filter(HotTopic.platform == platform)
             
+            # 如果指定了日期，按指定日期筛选
+            if topic_date:
+                query = query.filter(HotTopic.topic_date == topic_date)
+            else:
+                # 否则获取最新日期
+                max_date_subquery = self.db.query(func.max(HotTopic.topic_date)).scalar_subquery()
+                query = query.filter(HotTopic.topic_date == max_date_subquery)
+            
+            # 查询结果
             topics = query.order_by(
                 HotTopic.platform,
                 HotTopic.rank if HotTopic.rank is not None else 9999
@@ -382,6 +448,7 @@ class HotTopicRepository:
             "rank": topic.rank,
             "rank_change": topic.rank_change,
             "heat_level": topic.heat_level,
+            "topic_date": topic.topic_date.isoformat() if topic.topic_date else None,
             "crawler_id": topic.crawler_id,
             "crawl_time": topic.crawl_time.isoformat() if topic.crawl_time else None,
             "status": topic.status,

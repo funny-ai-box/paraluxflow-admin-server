@@ -24,6 +24,7 @@ def get_latest_hot_topics():
     查询参数:
     - platform: 平台筛选
     - limit: 返回条数，默认50
+    - topic_date: 指定日期，格式：YYYY-MM-DD，不提供则获取最新日期
     
     Returns:
         最新热点话题列表
@@ -32,17 +33,25 @@ def get_latest_hot_topics():
         # 获取参数
         platform = request.args.get("platform")
         limit = request.args.get("limit", 50, type=int)
+        topic_date_str = request.args.get("topic_date")
+        
+        # 解析日期参数
+        topic_date = None
+        if topic_date_str:
+            try:
+                topic_date = datetime.strptime(topic_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                return error_response(PARAMETER_ERROR, f"无效的日期格式，应为YYYY-MM-DD")
         
         # 创建会话和存储库
         db_session = get_db_session()
-        task_repo = HotTopicTaskRepository(db_session)
         topic_repo = HotTopicRepository(db_session)
         
         # 创建服务
-        hot_topic_service = HotTopicService(task_repo, topic_repo)
+        hot_topic_service = HotTopicService(None, topic_repo)
         
         # 获取最新热点
-        topics = hot_topic_service.get_latest_hot_topics(platform, limit)
+        topics = topic_repo.get_latest_hot_topics(platform, limit, topic_date)
         
         return success_response(topics)
     except Exception as e:
@@ -61,8 +70,9 @@ def get_hot_topics():
     - keyword: 标题关键词
     - task_id: 任务ID
     - batch_id: 批次ID
-    - start_date: 开始日期，格式：YYYY-MM-DD
-    - end_date: 结束日期，格式：YYYY-MM-DD
+    - topic_date: 热点日期筛选，格式：YYYY-MM-DD
+    - start_date: 开始日期，格式：YYYY-MM-DD (针对创建时间)
+    - end_date: 结束日期，格式：YYYY-MM-DD (针对创建时间)
     
     Returns:
         热点话题列表及分页信息
@@ -75,6 +85,7 @@ def get_hot_topics():
         keyword = request.args.get("keyword")
         task_id = request.args.get("task_id")
         batch_id = request.args.get("batch_id")
+        topic_date = request.args.get("topic_date")
         start_date = request.args.get("start_date")
         end_date = request.args.get("end_date")
         
@@ -88,19 +99,17 @@ def get_hot_topics():
             filters["task_id"] = task_id
         if batch_id:
             filters["batch_id"] = batch_id
+        if topic_date:
+            filters["topic_date"] = topic_date
         if start_date or end_date:
             filters["date_range"] = (start_date, end_date)
         
         # 创建会话和存储库
         db_session = get_db_session()
-        task_repo = HotTopicTaskRepository(db_session)
         topic_repo = HotTopicRepository(db_session)
         
-        # 创建服务
-        hot_topic_service = HotTopicService(task_repo, topic_repo)
-        
         # 获取热点列表
-        topics = hot_topic_service.get_hot_topics(page=page, per_page=per_page, filters=filters)
+        topics = topic_repo.get_topics(filters, page, per_page)
         
         return success_response(topics)
     except Exception as e:

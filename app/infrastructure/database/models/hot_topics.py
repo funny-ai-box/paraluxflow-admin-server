@@ -1,6 +1,6 @@
 # app/infrastructure/database/models/hot_topics.py
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, Float, func
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, Float, func, Date, UniqueConstraint
 
 from app.extensions import db
 from app.core.security import generate_uuid
@@ -45,12 +45,20 @@ class HotTopic(db.Model):
     rank_change = Column(Integer, comment="排名变化")
     heat_level = Column(Integer, comment="热度等级：1-5")
     
+    # 新增字段：热点日期
+    topic_date = Column(Date, nullable=False, default=func.current_date(), comment="热点日期")
+    
     crawler_id = Column(String(255), comment="爬虫标识")
     crawl_time = Column(DateTime, comment="爬取时间")
     status = Column(Integer, default=1, comment="状态：1=有效，0=无效")
     
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # 添加唯一约束：同一日期、同一平台、同一标题不能重复
+    __table_args__ = (
+        UniqueConstraint('topic_date', 'platform', 'topic_title', name='uix_topic_date_platform_title'),
+    )
 
 class HotTopicLog(db.Model):
     """热点爬取日志模型"""

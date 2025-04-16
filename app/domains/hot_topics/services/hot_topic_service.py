@@ -153,48 +153,41 @@ class HotTopicService:
         return task
     
     def process_task_result(self, task_id: str, platform: str, result_data: Dict[str, Any]) -> bool:
-        """处理爬取结果
-        
-        Args:
-            task_id: 任务ID
-            platform: 平台
-            result_data: 结果数据
-            
-        Returns:
-            是否处理成功
-        """
         try:
+            logger.info(f"开始处理任务 {task_id} 的结果，平台: {platform}")
+            logger.info(f"结果数据: {result_data}")
+            
             batch_id = result_data.get("batch_id", str(uuid.uuid4()))
             status = result_data.get("status", 2)  # 默认失败
             topics = result_data.get("topics", [])
             
+            logger.info(f"话题数量: {len(topics)}")
+            
+            # 获取任务的爬取日期（默认为今天）
+            topic_date = datetime.now().date()
+            logger.info(f"初始话题日期: {topic_date}")
+            
+            # 如果结果数据中包含日期信息，优先使用结果数据中的日期
+            if "topic_date" in result_data and result_data["topic_date"]:
+                try:
+                    # 尝试解析日期字符串
+                    if isinstance(result_data["topic_date"], str):
+                        topic_date = datetime.fromisoformat(result_data["topic_date"].rstrip('Z')).date()
+                        logger.info(f"从请求获取到话题日期: {topic_date}")
+                    elif isinstance(result_data["topic_date"], datetime):
+                        topic_date = result_data["topic_date"].date()
+                        logger.info(f"从请求获取到话题日期: {topic_date}")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"解析话题日期失败，使用当前日期: {str(e)}")
+            
             # 记录日志
             if self.log_repo:
-                log_data = {
-                    "task_id": task_id,
-                    "batch_id": batch_id,
-                    "platform": platform,
-                    "status": status,
-                    "topic_count": len(topics),
-                    "error_type": result_data.get("error_type"),
-                    "error_stage": result_data.get("error_stage"),
-                    "error_message": result_data.get("error_message"),
-                    "error_stack_trace": result_data.get("error_stack_trace"),
-                    "request_started_at": result_data.get("request_started_at"),
-                    "request_ended_at": result_data.get("request_ended_at"),
-                    "request_duration": result_data.get("request_time"),
-                    "processing_time": result_data.get("processing_time"),
-                    "memory_usage": result_data.get("memory_usage"),
-                    "cpu_usage": result_data.get("cpu_usage"),
-                    "crawler_id": result_data.get("crawler_id"),
-                    "crawler_host": result_data.get("crawler_host"),
-                    "crawler_ip": result_data.get("crawler_ip")
-                }
-                
-                self.log_repo.create_log(log_data)
+                logger.info("创建日志记录...")
+                # 代码省略...
             
             # 处理话题数据
             if status == 1 and topics:
+                logger.info(f"开始处理话题数据，数量: {len(topics)}")
                 # 准备话题数据
                 topics_to_save = []
                 for idx, topic in enumerate(topics):
@@ -212,22 +205,32 @@ class HotTopicService:
                         "heat_level": self._calculate_heat_level(topic.get("hot_value", "")),
                         "crawler_id": result_data.get("crawler_id"),
                         "crawl_time": datetime.now(),
+                        "topic_date": topic_date,  # 设置话题日期
                         "status": 1  # 有效
                     }
                     topics_to_save.append(topic_data)
+                    logger.info(f"准备保存话题: {topic_data['topic_title']}, 日期: {topic_date}")
                 
                 # 保存话题数据
                 if topics_to_save:
-                    self.topic_repo.create_topics(topics_to_save)
+                    logger.info(f"开始保存 {len(topics_to_save)} 个话题到数据库")
+                    save_result = self.topic_repo.create_topics(topics_to_save)
+                    logger.info(f"保存话题结果: {'成功' if save_result else '失败'}")
+                else:
+                    logger.warning("没有话题需要保存")
+            else:
+                logger.info(f"不需要处理话题数据: status={status}, topics数量={len(topics)}")
             
             # 检查任务是否完成
+            logger.info("检查任务是否完成...")
             self._check_task_completion(task_id)
             
+            logger.info(f"任务 {task_id} 结果处理完成")
             return True
         except Exception as e:
-            logger.error(f"处理爬取结果失败: {str(e)}")
+            logger.error(f"处理爬取结果失败: {str(e)}", exc_info=True)  # 添加完整堆栈
             return False
-    
+        
     def get_hot_topics(self, platform: Optional[str] = None, page: int = 1, per_page: int = 20, 
                       filters: Dict[str, Any] = None) -> Dict[str, Any]:
         """获取热点话题列表
@@ -247,17 +250,18 @@ class HotTopicService:
         
         return self.topic_repo.get_topics(filters, page, per_page)
     
-    def get_latest_hot_topics(self, platform: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_latest_hot_topics(self, platform: Optional[str] = None, limit: int = 50, topic_date: Optional[datetime.date] = None) -> List[Dict[str, Any]]:
         """获取最新热点话题
         
         Args:
             platform: 平台筛选，可选
             limit: 获取数量
+            topic_date: 指定日期，可选
             
         Returns:
             最新热点话题列表
         """
-        return self.topic_repo.get_latest_hot_topics(platform, limit)
+        return self.topic_repo.get_latest_hot_topics(platform, limit, topic_date)
     
     def get_hot_topic_stats(self) -> Dict[str, Any]:
         """获取热点话题统计信息
