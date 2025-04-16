@@ -14,7 +14,7 @@ from app.api.admin.v1.rss.script import script_bp
 from app.api.admin.v1.digest.digest import digest_bp
 # 导入LLM相关蓝图
 from app.api.admin.v1.llm.llm import llm_bp
-
+from app.api.admin.v1.hot_topics.hot_topics import hot_topics_bp
 # 注册RSS蓝图组
 from app.api.admin.v1.rss import rss_bp
 api_admin_v1_bp.register_blueprint(rss_bp, url_prefix="/rss")
@@ -33,3 +33,6 @@ api_admin_v1_bp.register_blueprint(auth_bp, url_prefix="/auth")
 
 # 注册摘要蓝图
 api_admin_v1_bp.register_blueprint(digest_bp, url_prefix="/digest")
+
+# 注册热点话题蓝图
+api_admin_v1_bp.register_blueprint(hot_topics_bp, url_prefix="/hot_topics")
