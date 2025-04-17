@@ -1,11 +1,12 @@
+# app/infrastructure/vector_stores/factory.py
 """向量存储工厂模块，负责创建和管理向量存储实例"""
 import logging
 from typing import Dict, Any, Optional
 
 from app.infrastructure.vector_stores.base import VectorStoreInterface
-from app.infrastructure.vector_stores.pinecone import PineconeVectorStore
-# 假设未来会添加其他实现
-# from app.infrastructure.vector_stores.qdrant import QdrantVectorStore
+
+from app.infrastructure.vector_stores.milvus import MilvusVectorStore
+
 from app.core.exceptions import APIException
 from app.core.status_codes import VECTOR_DB_ERROR
 
@@ -16,9 +17,9 @@ class VectorStoreFactory:
     
     # 支持的存储提供商映射
     STORES = {
-        "pinecone": PineconeVectorStore,
-        # 未来可以添加其他实现
-        # "qdrant": QdrantVectorStore,
+
+        "milvus": MilvusVectorStore,
+
     }
     
     @classmethod
@@ -26,7 +27,7 @@ class VectorStoreFactory:
         """创建向量存储实例
         
         Args:
-            store_name: 存储名称，如"pinecone"、"qdrant"
+            store_name: 存储名称，如"pinecone"、"milvus"
             **config: 配置参数，不同的存储可能需要不同的配置
             
         Returns:
@@ -67,23 +68,17 @@ class VectorStoreFactory:
             存储信息字典，键为存储名称，值为存储描述
         """
         return {
-            "pinecone": {
-                "name": "Pinecone",
-                "description": "Pinecone向量数据库，提供高性能的相似性搜索",
-                "features": ["插入向量", "查询向量", "过滤搜索", "元数据存储"],
+  
+            "milvus": {
+                "name": "Milvus",
+                "description": "Milvus是一个开源向量数据库，专为多样化向量相似度搜索设计",
+                "features": ["插入向量", "查询向量", "过滤搜索", "元数据存储", "集合管理"],
                 "configuration": {
-                    "api_key": "Pinecone API密钥",
-                    "environment": "Pinecone环境标识符"
+                    "host": "Milvus服务器地址",
+                    "port": "Milvus服务器端口",
+                    "user": "用户名（可选）",
+                    "password": "密码（可选）"
                 }
-            },
-            # 未来可以添加其他实现
-            # "qdrant": {
-            #     "name": "Qdrant",
-            #     "description": "Qdrant向量搜索引擎，支持本地或云托管模式",
-            #     "features": ["插入向量", "查询向量", "过滤搜索", "元数据存储", "分组", "分面搜索"],
-            #     "configuration": {
-            #         "url": "Qdrant服务器URL",
-            #         "api_key": "Qdrant API密钥（可选）"
-            #     }
-            # }
+            }
+
         }

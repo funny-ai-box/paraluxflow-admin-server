@@ -299,6 +299,97 @@ class RssFeedArticleRepository:
         except SQLAlchemyError as e:
             logger.error(f"获取待抓取文章失败: {str(e)}")
             return []
+        
+    def update_article_vectorization(self, article_id: int, update_data: Dict[str, Any]) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """更新文章向量化信息
+        
+        Args:
+            article_id: 文章ID
+            update_data: 更新数据
+            
+        Returns:
+            (错误信息, 更新后的文章信息)
+        """
+        try:
+            article = self.db.query(RssFeedArticle).filter(RssFeedArticle.id == article_id).first()
+            if not article:
+                return f"未找到ID为{article_id}的文章", None
+            
+            # 更新字段
+            for key, value in update_data.items():
+                if hasattr(article, key):
+                    setattr(article, key, value)
+            
+            self.db.commit()
+            self.db.refresh(article)
+            
+            return None, self._article_to_dict(article)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error(f"更新文章向量化信息失败, ID={article_id}: {str(e)}")
+            return str(e), None
+
+    def update_article_vectorization_status(self, article_id: int, status: int, error_message: Optional[str] = None) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """更新文章向量化状态
+        
+        Args:
+            article_id: 文章ID
+            status: 状态(0=未处理, 1=成功, 2=失败, 3=处理中)
+            error_message: 错误信息(失败时提供)
+            
+        Returns:
+            (错误信息, 更新后的文章信息)
+        """
+        try:
+            article = self.db.query(RssFeedArticle).filter(RssFeedArticle.id == article_id).first()
+            if not article:
+                return f"未找到ID为{article_id}的文章", None
+            
+            # 更新状态
+            article.vectorization_status = status
+            
+            if status == 1:  # 成功
+                article.is_vectorized = True
+                article.vectorized_at = datetime.now()
+                article.vectorization_error = None
+            elif status == 2:  # 失败
+                article.is_vectorized = False
+                article.vectorization_error = error_message
+            elif status == 3:  # 处理中
+                article.is_vectorized = False
+                article.vectorization_error = None
+            
+            self.db.commit()
+            self.db.refresh(article)
+            
+            return None, self._article_to_dict(article)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error(f"更新文章向量化状态失败, ID={article_id}: {str(e)}")
+            return str(e), None
+
+    def get_articles_for_vectorization(self, limit: int = 10, status: int = 0) -> List[Dict[str, Any]]:
+        """获取待向量化文章
+        
+        Args:
+            limit: 获取数量
+            status: 向量化状态(0=未处理, 1=成功, 2=失败, 3=处理中)
+            
+        Returns:
+            待向量化文章列表
+        """
+        try:
+            articles = self.db.query(RssFeedArticle).filter(
+                RssFeedArticle.vectorization_status == status,  # 指定状态
+                RssFeedArticle.content_id != None  # 确保有内容
+            ).order_by(
+                desc(RssFeedArticle.published_date)
+            ).limit(limit).all()
+            
+            return [self._article_to_dict(article) for article in articles]
+        except SQLAlchemyError as e:
+            logger.error(f"获取待向量化文章失败: {str(e)}")
+            return []
 
     def _article_to_dict(self, article: RssFeedArticle) -> Dict[str, Any]:
         """将文章对象转换为字典

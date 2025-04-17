@@ -81,6 +81,16 @@ class RssFeedArticle(db.Model):
     max_retries = Column(Integer, default=3, comment="最大重试次数")
     error_message = Column(Text, comment="错误信息")
 
+    # 向量化相关字段
+    is_vectorized = Column(Boolean, default=False, comment="是否已向量化")
+    vector_id = Column(String(64), comment="向量库中的ID")
+    vectorized_at = Column(DateTime, comment="向量化时间")
+    embedding_model = Column(String(100), comment="嵌入模型名称")
+    vector_dimension = Column(Integer, comment="向量维度")
+    generated_summary = Column(Text, comment="AI生成的摘要")
+    vectorization_error = Column(Text, comment="向量化错误信息")
+    vectorization_status = Column(Integer, default=0, comment="向量化状态：0=未处理，1=已成功，2=失败，3=正在处理")
+
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -281,3 +291,35 @@ class RssSyncLog(db.Model):
     
     def __repr__(self):
         return f"<RssSyncLog id={self.id}, sync_id={self.sync_id}, status={self.status}>"
+    
+class RssFeedArticleVectorizationTask(db.Model):
+    """RSS文章向量化任务表"""
+    __tablename__ = "rss_feed_article_vectorization_tasks"
+
+    id = Column(Integer, primary_key=True)
+    batch_id = Column(String(36), nullable=False, comment="批次ID")
+    
+    # 任务信息
+    total_articles = Column(Integer, default=0, comment="总文章数")
+    processed_articles = Column(Integer, default=0, comment="已处理文章数")
+    success_articles = Column(Integer, default=0, comment="成功向量化文章数")
+    failed_articles = Column(Integer, default=0, comment="失败向量化文章数")
+    
+    # 任务状态
+    status = Column(Integer, default=0, comment="任务状态：0=进行中，1=已完成，2=失败")
+    embedding_model = Column(String(100), comment="使用的嵌入模型")
+    
+    # 时间信息
+    started_at = Column(DateTime, default=datetime.now, comment="开始时间")
+    ended_at = Column(DateTime, comment="结束时间")
+    total_time = Column(Float, comment="总耗时(秒)")
+    
+    # 错误信息
+    error_message = Column(Text, comment="错误信息")
+    
+    # 其他信息
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    def __repr__(self):
+        return f"<RssFeedArticleVectorizationTask id={self.id}, batch_id={self.batch_id}, status={self.status}>"

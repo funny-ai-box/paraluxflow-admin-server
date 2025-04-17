@@ -19,7 +19,7 @@ Intelligent Middleware Platform (IMP) 是一个智能中间件平台，提供RSS
 1. 克隆代码库
 ```bash
 git clone <repository-url>
-cd imp-server
+cd paraluxflow-server
 ```
 
 2. 安装依赖
@@ -50,8 +50,8 @@ flask run
 ### Docker 部署
 
 ```bash
-docker build -t imp-server .
-docker run -p 8000:8000 --env-file .env imp-server
+docker build -t paraluxflow-server .
+docker run -p 8000:8000 --env-file .env paraluxflow-server
 ```
 
 ## API 文档
