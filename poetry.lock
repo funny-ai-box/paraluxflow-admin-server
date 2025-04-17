@@ -1636,6 +1636,17 @@ files = [
 ]
 
 [[package]]
+name = "jieba"
+version = "0.42.1"
+description = "Chinese Words Segmentation Utilities"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "jieba-0.42.1.tar.gz", hash = "sha256:055ca12f62674fafed09427f176506079bc135638a14e23e25be909131928db2"},
+]
+
+[[package]]
 name = "jinja2"
 version = "3.1.6"
 description = "A very fast and expressive template engine."
@@ -4272,4 +4283,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10.10"
-content-hash = "8e3713aa52c98e6c596c3ddd1765800ce3020a0bee41f1cea5c2c0431adcd823"
+content-hash = "4872b22cf5bc30ecf6925d8d46d8f5a9f19a96fd5b501a8e0d40dbf45575d4b6"
