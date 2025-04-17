@@ -132,7 +132,7 @@ class MilvusVectorStore(VectorStoreInterface):
                     - metric_type: 相似度度量类型，默认为COSINE
                     - index_type: 索引类型，默认为HNSW
                     - index_params: 索引参数，默认为{"M": 8, "efConstruction": 64}
-                    - fields: 额外字段定义，默认添加id、metadata字段
+                    - fields: 额外字段定义列表，每个字段为字典，包含name、type和params
         """
         self._ensure_initialized()
         
@@ -149,7 +149,7 @@ class MilvusVectorStore(VectorStoreInterface):
             index_params = kwargs.get("index_params", {"M": 8, "efConstruction": 64})
             
             # 默认字段
-            fields = [
+            field_list = [
                 FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=100),
                 FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=dimension),
                 FieldSchema(name="metadata", dtype=DataType.JSON)
@@ -158,10 +158,41 @@ class MilvusVectorStore(VectorStoreInterface):
             # 添加自定义字段
             custom_fields = kwargs.get("fields", [])
             if custom_fields:
-                fields.extend(custom_fields)
+                for field in custom_fields:
+                    if not isinstance(field, FieldSchema):
+                        # 从字典转换为FieldSchema对象
+                        field_name = field.get("name")
+                        field_type = field.get("type", "VARCHAR")
+                        
+                        # 确定数据类型
+                        data_type = None
+                        if field_type == "INT64" or field_type == "INTEGER":
+                            data_type = DataType.INT64
+                        elif field_type == "FLOAT":
+                            data_type = DataType.FLOAT
+                        elif field_type == "DOUBLE":
+                            data_type = DataType.DOUBLE
+                        elif field_type == "BOOLEAN":
+                            data_type = DataType.BOOL
+                        elif field_type == "VARCHAR" or field_type == "STRING":
+                            data_type = DataType.VARCHAR
+                            
+                        # 创建字段模式
+                        if data_type is not None:
+                            field_params = field.get("params", {})
+                            if data_type == DataType.VARCHAR and "max_length" in field_params:
+                                field_obj = FieldSchema(
+                                    name=field_name, 
+                                    dtype=data_type,
+                                    max_length=field_params.get("max_length", 100)
+                                )
+                            else:
+                                field_obj = FieldSchema(name=field_name, dtype=data_type)
+                            
+                            field_list.append(field_obj)
             
             # 创建集合模式
-            schema = CollectionSchema(fields=fields, description=description)
+            schema = CollectionSchema(fields=field_list, description=description)
             
             # 创建集合
             collection = Collection(name=index_name, schema=schema, using=self.alias)
@@ -278,8 +309,8 @@ class MilvusVectorStore(VectorStoreInterface):
             metadata_json = [json.dumps(m) if m else "{}" for m in metadata]
             
             # 插入数据
-            data = [ids, vectors, metadata_json]
-            collection.insert(data)
+            entities = [ids, vectors, metadata_json]
+            collection.insert(entities)
             
             logger.info(f"成功向集合 {index_name} 插入 {len(ids)} 条向量")
         except Exception as e:

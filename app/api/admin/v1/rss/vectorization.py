@@ -28,7 +28,7 @@ def start_vectorization_task():
         task_repo = RssFeedArticleVectorizationTaskRepository(db_session)
         
         # 初始化向量化服务
-        model = data.get("model", "text-embedding-3-small")
+        model = data.get("model", None)
         vectorization_service = ArticleVectorizationService(
             article_repo=article_repo,
             content_repo=content_repo,
@@ -174,7 +174,7 @@ def retry_article_vectorization(article_id):
         
         # 初始化向量化服务
         data = request.get_json() or {}
-        model = data.get("model", "text-embedding-3-small")
+        model = data.get("model", None)
         vectorization_service = ArticleVectorizationService(
             article_repo=article_repo,
             content_repo=content_repo,
@@ -264,7 +264,7 @@ def search_articles():
         content_repo = RssFeedArticleContentRepository(db_session)
         task_repo = RssFeedArticleVectorizationTaskRepository(db_session)
         
-        model = data.get("model", "text-embedding-3-small")
+        model = data.get("model",None)
         vectorization_service = ArticleVectorizationService(
             article_repo=article_repo,
             content_repo=content_repo,

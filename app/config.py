@@ -59,6 +59,12 @@ class Config:
 
     # 前端回调配置
     FRONTEND_CALLBACK_URL = os.environ.get("FRONTEND_CALLBACK_URL", "app://auth-callback")
+
+    MILVUS_HOST = os.environ.get("MILVUS_HOST", "115.159.79.130")
+    MILVUS_PORT = os.environ.get("MILVUS_PORT", "19530") 
+    MILVUS_COLLECTION = os.environ.get("MILVUS_COLLECTION", "rss_articles")
+    MILVUS_USER = os.environ.get("MILVUS_USER", "")
+    MILVUS_PASSWORD = os.environ.get("MILVUS_PASSWORD", "")
     
     # 从环境变量加载配置
     @classmethod

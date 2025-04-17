@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class ArticleVectorizationService:
     """RSS文章向量化服务"""
     
-    def __init__(self, article_repo, content_repo, task_repo, provider_type="openai", model="text-embedding-3-small", store_type="milvus"):
+    def __init__(self, article_repo, content_repo, task_repo, provider_type="volcano", model="doubao-embedding-large-text-240915", store_type="milvus"):
         """初始化向量化服务
         
         Args:
@@ -49,15 +49,11 @@ class ArticleVectorizationService:
     def _init_services(self):
         """初始化LLM提供商和向量存储"""
         try:
-            # 从配置获取API密钥
-            api_key = current_app.config.get("OPENAI_API_KEY") or ""
-            if not api_key:
-                logger.warning("OPENAI_API_KEY未在配置中设置")
-            
+     
+         # 从配置获取LLM提供商配置
             # 创建LLM提供商实例
             self.llm_provider = LLMProviderFactory.create_provider(
                 provider_name=self.provider_type,
-                api_key=api_key,
                 embeddings_model=self.model
             )
             
@@ -92,18 +88,23 @@ class ArticleVectorizationService:
             if not self.vector_store.index_exists(self.collection_name):
                 logger.info(f"创建向量集合: {self.collection_name}")
                 # 创建集合
+                from pymilvus import FieldSchema, DataType
+                
+                # 使用正确的 FieldSchema 对象
+                fields = [
+                    # 额外字段定义
+                    FieldSchema(name="article_id", dtype=DataType.INT64),
+                    FieldSchema(name="feed_id", dtype=DataType.VARCHAR, max_length=100),
+                    FieldSchema(name="title", dtype=DataType.VARCHAR, max_length=500),
+                    FieldSchema(name="summary", dtype=DataType.VARCHAR, max_length=2000),
+                    FieldSchema(name="created_at", dtype=DataType.VARCHAR, max_length=50)
+                ]
+                
                 self.vector_store.create_index(
                     index_name=self.collection_name,
                     dimension=self.vector_dimension,
                     description="RSS文章向量集合",
-                    fields=[
-                        # 额外字段定义，可根据需要调整
-                        {"name": "article_id", "type": "INT64"},
-                        {"name": "feed_id", "type": "VARCHAR", "params": {"max_length": 100}},
-                        {"name": "title", "type": "VARCHAR", "params": {"max_length": 500}},
-                        {"name": "summary", "type": "VARCHAR", "params": {"max_length": 2000}},
-                        {"name": "created_at", "type": "VARCHAR", "params": {"max_length": 50}}
-                    ]
+                    fields=fields
                 )
         except Exception as e:
             logger.warning(f"检查/创建集合失败: {str(e)}")
@@ -268,33 +269,50 @@ class ArticleVectorizationService:
         Raises:
             Exception: 处理失败时抛出异常
         """
-        try:
-            # 确保服务已初始化
-            if not self.llm_provider or not self.vector_store:
+        # 确保服务已初始化
+        if not self.llm_provider or not self.vector_store:
+            try:
                 self._init_services()
                 if not self.llm_provider or not self.vector_store:
+                    # 这里抛出异常而不是尝试继续处理
                     raise Exception("无法初始化服务，请检查配置")
-            
+            except Exception as e:
+                # 记录详细的初始化错误信息
+                logger.error(f"初始化向量化服务失败: {str(e)}")
+                # 更新文章状态
+                try:
+                    self.article_repo.update_article_vectorization_status(
+                        article_id=article_id, 
+                        status=2,  # 失败
+                        error_message=f"服务初始化失败: {str(e)}"
+                    )
+                except Exception as db_error:
+                    # 如果连状态更新都失败（如表结构问题），则记录这个额外错误
+                    logger.error(f"更新文章状态失败: {str(db_error)}")
+                    # 组合两个错误信息以提供更完整的错误上下文
+                    raise Exception(f"服务初始化失败: {str(e)}。数据库错误: {str(db_error)}")
+                # 原始错误继续向上抛出
+                raise Exception(f"服务初始化失败: {str(e)}")
+        
+        try:
             # 标记文章为正在处理状态
-            self.article_repo.update_article_vectorization_status(
-                article_id=article_id, 
-                status=3,  # 正在处理
-                error_message=None
-            )
-            
+            try:
+                self.article_repo.update_article_vectorization_status(
+                    article_id=article_id, 
+                    status=3,  # 正在处理
+                    error_message=None
+                )
+            except Exception as e:
+                # 如果无法更新状态（可能是数据库结构问题），直接抛出异常
+                logger.error(f"无法更新文章状态: {str(e)}")
+                raise Exception(f"数据库结构错误: {str(e)}。表中可能缺少向量化相关字段，请确保已进行数据库迁移。")
+                
             # 获取文章信息
             err, article = self.article_repo.get_article_by_id(article_id)
             if err:
                 raise Exception(f"获取文章失败: {err}")
             
-            # 检查文章是否已有内容
-            if not article["content_id"]:
-                raise Exception("文章缺少内容，无法向量化")
-            
-            # 获取文章内容
-            err, content = self.content_repo.get_article_content(article["content_id"])
-            if err:
-                raise Exception(f"获取文章内容失败: {err}")
+
             
             # 检查摘要质量，如果摘要不存在或太短，生成新摘要
             summary = article["summary"]
@@ -302,6 +320,13 @@ class ArticleVectorizationService:
             
             if not summary or len(summary) < 100:
                 logger.info(f"文章 {article_id} 摘要太短，生成新摘要")
+                if not article["content_id"]:
+                    raise Exception("文章缺少内容，无法向量化")
+                
+                # 获取文章内容
+                err, content = self.content_repo.get_article_content(article["content_id"])
+                if err:
+                    raise Exception(f"获取文章内容失败: {err}")
                 
                 # 使用sumy生成摘要
                 html_content = content.get("html_content")
@@ -321,11 +346,12 @@ class ArticleVectorizationService:
             # 构建向量化文本（标题+摘要）
             vector_text = f"{article['title']}\n{summary}"
             
-            # 使用LLM Provider生成向量
+            
             embedding_result = self.llm_provider.generate_embeddings(
-                texts=[vector_text],
-                model=self.model
-            )
+                    texts=[vector_text],
+                    model=self.model
+                )
+        
             
             # 从结果中提取向量
             vector = embedding_result["embeddings"][0]
@@ -343,12 +369,17 @@ class ArticleVectorizationService:
             }
             
             # 插入向量到向量存储
-            self.vector_store.upsert(
-                index_name=self.collection_name,
-                vectors=[vector],
-                ids=[vector_id],
-                metadata=[metadata]
-            )
+            try:
+                self.vector_store.upsert(
+                    index_name=self.collection_name,
+                    vectors=[vector],
+                    ids=[vector_id],
+                    metadata=[metadata]
+                )
+            except Exception as e:
+                # 提供具体的向量存储错误
+                logger.error(f"存储向量失败: {str(e)}")
+                raise Exception(f"存储向量失败: {str(e)}。请检查Milvus服务是否正确配置和运行。")
             
             # 更新文章状态
             update_data = {
@@ -373,21 +404,24 @@ class ArticleVectorizationService:
                 "message": "文章向量化成功"
             }
         except Exception as e:
-            # 记录错误
+            # 记录详细错误
             logger.error(f"文章 {article_id} 向量化失败: {str(e)}")
             
-            # 更新文章状态
-            self.article_repo.update_article_vectorization_status(
-                article_id=article_id,
-                status=2,  # 失败
-                error_message=str(e)
-            )
+            # 尝试更新文章状态
+            try:
+                self.article_repo.update_article_vectorization_status(
+                    article_id=article_id,
+                    status=2,  # 失败
+                    error_message=str(e)
+                )
+            except Exception as db_error:
+                # 如果连状态更新都失败，记录额外错误
+                logger.error(f"更新文章向量化状态失败: {str(db_error)}")
+                # 附加额外的错误信息
+                raise Exception(f"文章向量化失败: {str(e)}。数据库错误: {str(db_error)}")
             
-            return {
-                "status": "failed",
-                "article_id": article_id,
-                "message": f"文章向量化失败: {str(e)}"
-            }
+            # 向上抛出原始错误
+            raise Exception(f"文章向量化失败: {str(e)}")
     
     def get_similar_articles(self, article_id: int, limit: int = 10) -> List[Dict[str, Any]]:
         """获取相似文章
