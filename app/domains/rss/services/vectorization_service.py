@@ -55,8 +55,8 @@ class ArticleVectorizationService:
         """初始化LLM提供商和向量存储"""
         try:
      
-         # 从配置获取LLM提供商配置
-            # 创建LLM提供商实例
+         
+            print("初始化服务")
             self.llm_provider = LLMProviderFactory.create_provider(
                 provider_name=self.provider_type,
                 embeddings_model=self.model
@@ -76,8 +76,7 @@ class ArticleVectorizationService:
                 **store_config
             )
             
-            # 设置集合名称
-            self.collection_name = current_app.config.get("MILVUS_COLLECTION", "rss_articles")
+            
             
             # 确保集合存在
             self._ensure_collection_exists()
@@ -88,31 +87,25 @@ class ArticleVectorizationService:
             # 不抛出异常，允许延迟初始化
     
     def _ensure_collection_exists(self):
-        """确保向量集合存在"""
+        """确保向量集合存在，如果不存在则自动创建"""
         try:
             if not self.vector_store.index_exists(self.collection_name):
-                logger.info(f"创建向量集合: {self.collection_name}")
+                logger.info(f"集合 {self.collection_name} 不存在，正在自动创建...")
+                
+                # 简化集合定义，只使用基本字段
                 # 创建集合
-                from pymilvus import FieldSchema, DataType
-                
-                # 使用正确的 FieldSchema 对象
-                fields = [
-                    # 额外字段定义
-                    FieldSchema(name="article_id", dtype=DataType.INT64),
-                    FieldSchema(name="feed_id", dtype=DataType.VARCHAR, max_length=100),
-                    FieldSchema(name="title", dtype=DataType.VARCHAR, max_length=500),
-                    FieldSchema(name="summary", dtype=DataType.VARCHAR, max_length=2000),
-                    FieldSchema(name="created_at", dtype=DataType.VARCHAR, max_length=50)
-                ]
-                
                 self.vector_store.create_index(
                     index_name=self.collection_name,
                     dimension=self.vector_dimension,
-                    description="RSS文章向量集合",
-                    fields=fields
+                    description="RSS文章向量集合"
+                    # 不指定额外字段，只使用默认的id、vector和metadata
                 )
+                logger.info(f"成功创建集合 {self.collection_name}，维度为 {self.vector_dimension}")
+                return True
+            return True  # 集合已存在
         except Exception as e:
-            logger.warning(f"检查/创建集合失败: {str(e)}")
+            logger.error(f"检查/创建集合失败: {str(e)}")
+            raise Exception(f"检查/创建集合失败: {str(e)}。请确保Milvus服务正确配置和运行。")
     
     def start_vectorization_task(self, filters: Dict[str, Any] = None) -> Dict[str, Any]:
         """启动向量化任务

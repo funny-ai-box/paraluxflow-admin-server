@@ -144,7 +144,7 @@ class MilvusVectorStore(VectorStoreInterface):
                     - metric_type: 相似度度量类型，默认为COSINE
                     - index_type: 索引类型，默认为HNSW
                     - index_params: 索引参数，默认为{"M": 8, "efConstruction": 64}
-                    - fields: 额外字段定义，默认添加id、metadata字段
+                    - fields: 额外字段定义
         """
         self._ensure_initialized()
         
@@ -169,26 +169,44 @@ class MilvusVectorStore(VectorStoreInterface):
             
             # 添加自定义字段
             custom_fields = kwargs.get("fields", [])
+            added_fields = set([f.name for f in fields])
+            
             if custom_fields:
                 # 处理额外字段
                 for field_def in custom_fields:
                     field_name = field_def.get("name")
-                    field_type = field_def.get("type", "VARCHAR")
+                    if not field_name or field_name in added_fields:
+                        continue  # 跳过没有名称或已存在的字段
                     
-                    if field_name in [f.name for f in fields]:
-                        continue  # 跳过已存在的字段
+                    field_type = field_def.get("type", "VARCHAR")
+                    params = field_def.get("params", {})
+                    
+                    logger.info(f"添加字段: {field_name}, 类型: {field_type}, 参数: {params}")
                     
                     if field_type == "INT64":
                         fields.append(FieldSchema(name=field_name, dtype=DataType.INT64))
+                        added_fields.add(field_name)
+                        
                     elif field_type == "VARCHAR":
-                        max_length = field_def.get("params", {}).get("max_length", 500)
+                        max_length = params.get("max_length", 500)
                         fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length))
+                        added_fields.add(field_name)
+                        
                     elif field_type == "JSON":
                         fields.append(FieldSchema(name=field_name, dtype=DataType.JSON))
+                        added_fields.add(field_name)
+                        
                     elif field_type == "FLOAT":
                         fields.append(FieldSchema(name=field_name, dtype=DataType.FLOAT))
+                        added_fields.add(field_name)
+                        
                     elif field_type == "BOOL":
                         fields.append(FieldSchema(name=field_name, dtype=DataType.BOOL))
+                        added_fields.add(field_name)
+                    else:
+                        logger.warning(f"不支持的字段类型: {field_type}, 字段: {field_name}")
+            
+            logger.info(f"正在创建集合 {index_name} 包含 {len(fields)} 个字段")
             
             # 创建集合模式
             schema = CollectionSchema(fields=fields, description=description)
@@ -213,7 +231,10 @@ class MilvusVectorStore(VectorStoreInterface):
             logger.info(f"集合 {index_name} 创建并加载成功")
         except Exception as e:
             logger.error(f"创建索引失败: {str(e)}")
+            # 记录更详细的错误信息
+            logger.exception("索引创建详细错误")
             raise APIException(f"创建Milvus索引失败: {str(e)}", VECTOR_DB_ERROR)
+
     
     def delete_index(self, index_name: str) -> None:
         """删除索引
