@@ -15,7 +15,7 @@ def generate_rsa_keys(key_size: int = 2048) -> Tuple[str, str]:
     """生成RSA密钥对
     
     Args:
-        key_size: 密钥大小，默认2048位
+        key_size: 密钥大小,默认2048位
         
     Returns:
         (私钥PEM字符串, 公钥PEM字符串)
@@ -81,7 +81,7 @@ def decrypt_with_private_key(encrypted_message: str, private_key_pem: str = None
     
     Args:
         encrypted_message: Base64编码的加密消息
-        private_key_pem: PEM格式的私钥，默认从应用配置获取
+        private_key_pem: PEM格式的私钥,默认从应用配置获取
         
     Returns:
         解密后的消息

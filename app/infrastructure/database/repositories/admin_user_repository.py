@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from sqlalchemy.orm import Session
 from app.infrastructure.database.models.admin_user import AdminUser
+from app.infrastructure.database.models.user import User
 
 logger = logging.getLogger(__name__)
 
