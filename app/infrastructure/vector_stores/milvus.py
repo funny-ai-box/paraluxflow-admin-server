@@ -113,8 +113,20 @@ class MilvusVectorStore(VectorStoreInterface):
         collection = Collection(name=index_name, using=self.alias)
         
         # 自动加载
-        if auto_load and not utility.has_collection_loaded(index_name, using=self.alias):
-            collection.load()
+        if auto_load:
+            try:
+                # 尝试获取集合加载状态
+                loaded = collection.is_loaded
+                if not loaded:
+                    collection.load()
+                    logger.info(f"集合 {index_name} 已加载")
+            except Exception as e:
+                # 如果无法检查加载状态，直接尝试加载
+                logger.warning(f"无法检查集合加载状态，尝试直接加载: {str(e)}")
+                try:
+                    collection.load()
+                except Exception as load_err:
+                    logger.warning(f"加载集合异常，可能已经加载: {str(load_err)}")
         
         # 缓存集合
         self.collections[index_name] = collection
@@ -132,7 +144,7 @@ class MilvusVectorStore(VectorStoreInterface):
                     - metric_type: 相似度度量类型，默认为COSINE
                     - index_type: 索引类型，默认为HNSW
                     - index_params: 索引参数，默认为{"M": 8, "efConstruction": 64}
-                    - fields: 额外字段定义列表，每个字段为字典，包含name、type和params
+                    - fields: 额外字段定义，默认添加id、metadata字段
         """
         self._ensure_initialized()
         
@@ -149,7 +161,7 @@ class MilvusVectorStore(VectorStoreInterface):
             index_params = kwargs.get("index_params", {"M": 8, "efConstruction": 64})
             
             # 默认字段
-            field_list = [
+            fields = [
                 FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=100),
                 FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=dimension),
                 FieldSchema(name="metadata", dtype=DataType.JSON)
@@ -158,41 +170,28 @@ class MilvusVectorStore(VectorStoreInterface):
             # 添加自定义字段
             custom_fields = kwargs.get("fields", [])
             if custom_fields:
-                for field in custom_fields:
-                    if not isinstance(field, FieldSchema):
-                        # 从字典转换为FieldSchema对象
-                        field_name = field.get("name")
-                        field_type = field.get("type", "VARCHAR")
-                        
-                        # 确定数据类型
-                        data_type = None
-                        if field_type == "INT64" or field_type == "INTEGER":
-                            data_type = DataType.INT64
-                        elif field_type == "FLOAT":
-                            data_type = DataType.FLOAT
-                        elif field_type == "DOUBLE":
-                            data_type = DataType.DOUBLE
-                        elif field_type == "BOOLEAN":
-                            data_type = DataType.BOOL
-                        elif field_type == "VARCHAR" or field_type == "STRING":
-                            data_type = DataType.VARCHAR
-                            
-                        # 创建字段模式
-                        if data_type is not None:
-                            field_params = field.get("params", {})
-                            if data_type == DataType.VARCHAR and "max_length" in field_params:
-                                field_obj = FieldSchema(
-                                    name=field_name, 
-                                    dtype=data_type,
-                                    max_length=field_params.get("max_length", 100)
-                                )
-                            else:
-                                field_obj = FieldSchema(name=field_name, dtype=data_type)
-                            
-                            field_list.append(field_obj)
+                # 处理额外字段
+                for field_def in custom_fields:
+                    field_name = field_def.get("name")
+                    field_type = field_def.get("type", "VARCHAR")
+                    
+                    if field_name in [f.name for f in fields]:
+                        continue  # 跳过已存在的字段
+                    
+                    if field_type == "INT64":
+                        fields.append(FieldSchema(name=field_name, dtype=DataType.INT64))
+                    elif field_type == "VARCHAR":
+                        max_length = field_def.get("params", {}).get("max_length", 500)
+                        fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length))
+                    elif field_type == "JSON":
+                        fields.append(FieldSchema(name=field_name, dtype=DataType.JSON))
+                    elif field_type == "FLOAT":
+                        fields.append(FieldSchema(name=field_name, dtype=DataType.FLOAT))
+                    elif field_type == "BOOL":
+                        fields.append(FieldSchema(name=field_name, dtype=DataType.BOOL))
             
             # 创建集合模式
-            schema = CollectionSchema(fields=field_list, description=description)
+            schema = CollectionSchema(fields=fields, description=description)
             
             # 创建集合
             collection = Collection(name=index_name, schema=schema, using=self.alias)
@@ -305,12 +304,17 @@ class MilvusVectorStore(VectorStoreInterface):
             elif len(metadata) != len(ids):
                 raise APIException("元数据数量和ID数量不匹配", VECTOR_DB_ERROR)
             
-            # 转换元数据为JSON字符串
-            metadata_json = [json.dumps(m) if m else "{}" for m in metadata]
+            # 转换元数据为JSON字符串 (根据版本可能不需要)
+            metadata_json = []
+            for m in metadata:
+                if m is None:
+                    metadata_json.append(None)
+                else:
+                    metadata_json.append(m)
             
             # 插入数据
-            entities = [ids, vectors, metadata_json]
-            collection.insert(entities)
+            data = [ids, vectors, metadata_json]
+            collection.insert(data)
             
             logger.info(f"成功向集合 {index_name} 插入 {len(ids)} 条向量")
         except Exception as e:
@@ -343,12 +347,18 @@ class MilvusVectorStore(VectorStoreInterface):
             existing_ids = []
             for id_batch in [ids[i:i+100] for i in range(0, len(ids), 100)]:
                 expr = f"id in {id_batch}"
-                results = collection.query(expr=expr, output_fields=["id"])
-                existing_ids.extend([r["id"] for r in results])
+                try:
+                    results = collection.query(expr=expr, output_fields=["id"])
+                    existing_ids.extend([r["id"] for r in results])
+                except Exception as query_err:
+                    logger.warning(f"查询ID存在性失败，将尝试直接插入: {str(query_err)}")
             
             # 删除存在的ID
             if existing_ids:
-                self.delete(index_name, existing_ids)
+                try:
+                    self.delete(index_name, existing_ids)
+                except Exception as del_err:
+                    logger.warning(f"删除现有向量失败，将尝试直接插入: {str(del_err)}")
             
             # 插入新数据
             self.insert(index_name, vectors, ids, metadata)
@@ -416,8 +426,13 @@ class MilvusVectorStore(VectorStoreInterface):
                 # 简单过滤条件支持
                 expr_parts = []
                 for key, value in filter.items():
-                    # 处理JSON字段中的属性查询
-                    expr_parts.append(f'metadata["{key}"] == "{value}"')
+                    # 处理不同类型的值
+                    if isinstance(value, str):
+                        expr_parts.append(f'{key} == "{value}"')
+                    elif isinstance(value, (int, float, bool)):
+                        expr_parts.append(f'{key} == {value}')
+                    else:
+                        logger.warning(f"不支持的过滤值类型: {type(value)}")
                 
                 if expr_parts:
                     expr = " && ".join(expr_parts)
@@ -437,10 +452,16 @@ class MilvusVectorStore(VectorStoreInterface):
             for hits in results:
                 for hit in hits:
                     # 解析元数据
+                    metadata = {}
                     try:
-                        metadata = json.loads(hit.entity.get('metadata', '{}'))
-                    except:
-                        metadata = {}
+                        # 尝试获取元数据
+                        raw_metadata = hit.entity.get('metadata')
+                        if isinstance(raw_metadata, dict):
+                            metadata = raw_metadata
+                        elif isinstance(raw_metadata, str) and raw_metadata:
+                            metadata = json.loads(raw_metadata)
+                    except Exception as metadata_err:
+                        logger.warning(f"解析元数据失败: {str(metadata_err)}")
                     
                     search_results.append({
                         "id": hit.id,
@@ -489,8 +510,13 @@ class MilvusVectorStore(VectorStoreInterface):
                 # 简单过滤条件支持
                 expr_parts = []
                 for key, value in filter.items():
-                    # 处理JSON字段中的属性查询
-                    expr_parts.append(f'metadata["{key}"] == "{value}"')
+                    # 处理不同类型的值
+                    if isinstance(value, str):
+                        expr_parts.append(f'{key} == "{value}"')
+                    elif isinstance(value, (int, float, bool)):
+                        expr_parts.append(f'{key} == {value}')
+                    else:
+                        logger.warning(f"不支持的过滤值类型: {type(value)}")
                 
                 if expr_parts:
                     expr = " && ".join(expr_parts)
@@ -511,10 +537,16 @@ class MilvusVectorStore(VectorStoreInterface):
                 search_results = []
                 for hit in hits:
                     # 解析元数据
+                    metadata = {}
                     try:
-                        metadata = json.loads(hit.entity.get('metadata', '{}'))
-                    except:
-                        metadata = {}
+                        # 尝试获取元数据
+                        raw_metadata = hit.entity.get('metadata')
+                        if isinstance(raw_metadata, dict):
+                            metadata = raw_metadata
+                        elif isinstance(raw_metadata, str) and raw_metadata:
+                            metadata = json.loads(raw_metadata)
+                    except Exception as metadata_err:
+                        logger.warning(f"解析元数据失败: {str(metadata_err)}")
                     
                     search_results.append({
                         "id": hit.id,
@@ -557,10 +589,16 @@ class MilvusVectorStore(VectorStoreInterface):
             vector_data = []
             for item in results:
                 # 解析元数据
+                metadata = {}
                 try:
-                    metadata = json.loads(item.get('metadata', '{}'))
-                except:
-                    metadata = {}
+                    # 尝试获取元数据
+                    raw_metadata = item.get('metadata')
+                    if isinstance(raw_metadata, dict):
+                        metadata = raw_metadata
+                    elif isinstance(raw_metadata, str) and raw_metadata:
+                        metadata = json.loads(raw_metadata)
+                except Exception as metadata_err:
+                    logger.warning(f"解析元数据失败: {str(metadata_err)}")
                 
                 vector_data.append({
                     "id": item["id"],
@@ -595,16 +633,31 @@ class MilvusVectorStore(VectorStoreInterface):
                 # 简单过滤条件支持
                 expr_parts = []
                 for key, value in filter.items():
-                    # 处理JSON字段中的属性查询
-                    expr_parts.append(f'metadata["{key}"] == "{value}"')
+                    # 处理不同类型的值
+                    if isinstance(value, str):
+                        expr_parts.append(f'{key} == "{value}"')
+                    elif isinstance(value, (int, float, bool)):
+                        expr_parts.append(f'{key} == {value}')
+                    else:
+                        logger.warning(f"不支持的过滤值类型: {type(value)}")
                 
                 if expr_parts:
                     expr = " && ".join(expr_parts)
             
             # 获取数量
             if expr:
-                count = collection.query(expr=expr, output_fields=["count(*)"])[0]["count(*)"]
-                return count
+                try:
+                    # 尝试使用count(*)函数
+                    count_result = collection.query(expr=expr, output_fields=["count(*)"])
+                    if count_result and "count(*)" in count_result[0]:
+                        return count_result[0]["count(*)"]
+                    else:
+                        # 回退方法：获取所有ID然后计数
+                        id_results = collection.query(expr=expr, output_fields=["id"])
+                        return len(id_results)
+                except Exception as count_err:
+                    logger.warning(f"查询计数失败，使用实体数量: {str(count_err)}")
+                    return collection.num_entities
             else:
                 return collection.num_entities
         except Exception as e:

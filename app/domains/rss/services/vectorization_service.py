@@ -41,7 +41,12 @@ class ArticleVectorizationService:
         self.collection_name = "rss_articles"  # 默认集合/索引名称
         
         # 设置向量维度（根据模型确定）
-        self.vector_dimension = 1536  # OpenAI默认维度
+        if "volcano" in self.provider_type:
+    
+            self.vector_dimension = 4096
+        else:
+
+            self.vector_dimension = 1536
         
         # 初始化LLM Provider和向量存储
         self._init_services()
