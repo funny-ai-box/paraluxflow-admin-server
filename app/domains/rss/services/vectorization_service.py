@@ -447,6 +447,7 @@ class ArticleVectorizationService:
                 raise Exception(f"获取文章失败: {err}")
             
             # 检查文章是否已向量化
+            print(article)
             if not article.get("is_vectorized") or not article.get("vector_id"):
                 raise Exception("文章尚未向量化")
             

@@ -415,6 +415,12 @@ class RssFeedArticleRepository:
             "is_locked": article.is_locked,
             "lock_timestamp": article.lock_timestamp.isoformat() if article.lock_timestamp else None,
             "crawler_id": article.crawler_id,
+            "vectorization_status": article.vectorization_status,
+            "is_vectorized": article.is_vectorized,
+            "vectorized_at": article.vectorized_at.isoformat() if article.vectorized_at else None,
+            "vectorization_error": article.vectorization_error,
+            "vector_id": article.vector_id,
+            
             "retry_count": article.retry_count,
             "max_retries": article.max_retries,
             "error_message": article.error_message,

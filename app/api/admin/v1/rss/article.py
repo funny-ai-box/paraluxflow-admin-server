@@ -105,7 +105,7 @@ def get_articles():
         logger.error(f"获取文章列表失败: {str(e)}")
         return error_response(PARAMETER_ERROR, f"获取文章列表失败: {str(e)}")
 
-@article_bp.route("/detail", methods=["POST"])
+@article_bp.route("/detail", methods=["GET"])
 @auth_required
 def get_article_detail():
     """获取文章详情
@@ -120,7 +120,7 @@ def get_article_detail():
     """
     try:
         # 获取请求参数
-        data = request.get_json() or {}
+        data = request.args
         
         if "article_id" not in data:
             return error_response(PARAMETER_ERROR, "缺少article_id参数")
