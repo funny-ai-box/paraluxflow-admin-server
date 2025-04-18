@@ -4,7 +4,7 @@ from app.core.status_codes import PARAMETER_ERROR
 class APIException(Exception):
     """API异常基类"""
 
-    def __init__(self, message, code, http_status_code=400):
+    def __init__(self, message, code=60000, http_status_code=400):
         self.message = message
         self.code = code
         self.http_status_code = http_status_code

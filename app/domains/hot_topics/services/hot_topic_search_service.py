@@ -216,7 +216,7 @@ class HotTopicSearchService:
         try:
             topic_dicts = self.unified_topic_repo.get_topic_by_id(unified_topic_id)
             if not topic_dicts:
-                raise APIException(f"未找到ID为 {unified_topic_id} 的统一热点")
+                raise APIException(f"未找到ID为 {unified_topic_id} 的统一热点",50001)
             
             unified_topic = topic_dicts[0] if isinstance(topic_dicts, list) else topic_dicts
             
@@ -231,4 +231,4 @@ class HotTopicSearchService:
             raise
         except Exception as e:
             logger.error(f"获取统一热点详情失败: {str(e)}", exc_info=True)
-            raise APIException(f"获取统一热点详情失败: {str(e)}")
+            raise APIException(f"获取统一热点详情失败: {str(e)}", 50001)

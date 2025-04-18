@@ -382,107 +382,71 @@ def get_stats():
     except Exception as e:
         logger.error(f"获取热点话题统计信息失败: {str(e)}")
         return error_response(PARAMETER_ERROR, f"获取热点话题统计信息失败: {str(e)}")
-    
 @hot_topics_bp.route("/aggregate", methods=["POST"])
-@admin_required # Requires admin privileges to trigger
+@admin_required # 需要管理员权限才能触发
 def trigger_hot_topic_aggregation():
     """
     手动触发指定日期的热点话题聚合任务
+    
+    请求体:
+    {
+        "topic_date": "2025-04-18",  # 必填，需要聚合的热点日期 (格式: YYYY-MM-DD)
+        "model_id": "gpt-4",         # 可选，指定使用的模型ID
+        "provider_type": "openai"    # 可选，指定使用的提供商类型
+    }
+    
+    Returns:
+        聚合任务的结果
     """
-    logger.info("Received request to trigger hot topic aggregation.")
+    logger.info("收到请求，开始触发热点话题聚合")
     try:
-        # 1. Get request data
+        # 1. 获取请求数据
         data = request.get_json()
         if not data:
             return error_response(PARAMETER_ERROR, "请求体不能为空")
 
         topic_date_str = data.get("topic_date")
-        model_id = data.get("model_id") # Optional: override default LLM model
+        model_id = data.get("model_id")  # 可选: 覆盖默认LLM模型
+        provider_type = data.get("provider_type","volcano")  # 可选: 指定提供商类型
 
         if not topic_date_str:
             return error_response(PARAMETER_ERROR, "缺少 topic_date 参数 (格式: YYYY-MM-DD)")
 
-        # 2. Validate date
-        try:
-            topic_date_obj = datetime.strptime(topic_date_str, "%Y-%m-%d").date()
-        except ValueError:
-            return error_response(PARAMETER_ERROR, "无效的日期格式，应为 YYYY-MM-DD")
-
-        # 3. Instantiate dependencies
+        # 2. 创建依赖和服务
         db_session = get_db_session()
         hot_topic_repo = HotTopicRepository(db_session)
-        unified_topic_repo = UnifiedHotTopicRepository(db_session) # Use the new repository
-
-
-        llm_provider_instance = None
-        try:
-
-         
-             provider_repo = LLMProviderRepository(db_session)
-             providers = provider_repo.get_all_providers()
-             active_provider_config = next((p for p in providers if p.get('is_active')), None)
-
-             if not active_provider_config:
-                  raise APIException("没有找到可用的 LLM 提供商配置", EXTERNAL_API_ERROR)
-
-             provider_type = active_provider_config.get("provider_type")
-             api_key = active_provider_config.get("api_key") 
-             print(f"api_key: {api_key}")
-    
-
- 
-
-             if not api_key:
-                 raise APIException(f"提供商 {provider_type} 的 API Key 未配置", EXTERNAL_API_ERROR)
-
-             llm_provider_instance = LLMProviderFactory.create_provider(
-                 "volcano",
-                    api_key=api_key,
-             
-             )
-             logger.info(f"成功实例化 LLM 提供商: {provider_type}")
-
-        except APIException as e:
-             logger.error(f"实例化 LLM 提供商失败: {e.message}")
-             return error_response(e.code, f"实例化 LLM 提供商失败: {e.message}")
-        except Exception as e:
-            logger.error(f"实例化 LLM 提供商时发生未知错误: {str(e)}", exc_info=True)
-            return error_response(EXTERNAL_API_ERROR, f"实例化 LLM 提供商时出错: {str(e)}")
-        # ---- End of LLM Provider Instantiation ----
-
-
-        # 5. Instantiate Aggregation Service
+        unified_topic_repo = UnifiedHotTopicRepository(db_session)
+        
+        # 创建聚合服务（不在这里初始化LLM提供商，由服务内部处理）
         aggregation_service = HotTopicAggregationService(
             db_session=db_session,
             hot_topic_repo=hot_topic_repo,
-            unified_topic_repo=unified_topic_repo,
-            llm_provider=llm_provider_instance
+            unified_topic_repo=unified_topic_repo
+        )
+        
+        # 3. 调用服务的触发方法
+        logger.info(f"调用聚合服务触发方法，日期: {topic_date_str}")
+        result = aggregation_service.trigger_aggregation(
+            topic_date_str=topic_date_str,
+            model_id=model_id,
+            provider_type=provider_type
         )
 
-        # 6. Execute aggregation
-        logger.info(f"调用 aggregation_service.aggregate_topics_for_date for {topic_date_obj.isoformat()}")
-        result = aggregation_service.aggregate_topics_for_date(
-            topic_date=topic_date_obj,
-            model_id=model_id # Pass the optional model_id
-        )
-        logger.info(f"聚合服务执行完毕，结果状态: {result.get('status')}")
-
-        # 7. Return response based on result
-        if result.get("status") == "success":
+        # 4. 根据结果返回响应
+        status = result.get("status")
+        if status == "success":
             return success_response(result, f"日期 {topic_date_str} 的热点聚合成功")
-        elif result.get("status") == "no_topics":
-             return success_response(result, f"日期 {topic_date_str} 没有找到需要聚合的热点")
+        elif status == "no_topics":
+            return success_response(result, f"日期 {topic_date_str} 没有找到需要聚合的热点")
+        elif status == "llm_error":
+            return error_response(EXTERNAL_API_ERROR, result.get("message", "初始化LLM提供商失败"))
+        elif status == "ai_error":
+            return error_response(EXTERNAL_API_ERROR, result.get("message", "AI聚合调用失败"))
+        elif status == "db_error":
+            return error_response(PARAMETER_ERROR, result.get("message", "数据库操作失败"))
         else:
-            # Handle specific errors like 'ai_error', 'db_error', 'error'
-            error_message = result.get("message", "聚合过程中发生未知错误")
-            return error_response(PARAMETER_ERROR, error_message) # Or a more specific error code
+            return error_response(PARAMETER_ERROR, result.get("message", "聚合过程中发生未知错误"))
 
-    except ValueError as ve: # Catch specific validation errors like date format
-        logger.error(f"请求参数验证失败: {str(ve)}", exc_info=True)
-        return error_response(PARAMETER_ERROR, f"请求参数错误: {str(ve)}")
-    except APIException as ae: # Catch specific API errors (e.g., LLM config)
-        logger.error(f"API 异常: {ae.message} (Code: {ae.code})", exc_info=True)
-        return error_response(ae.code, ae.message)
     except Exception as e:
         logger.error(f"触发热点聚合失败: {str(e)}", exc_info=True)
         return error_response(PARAMETER_ERROR, f"触发聚合失败: {str(e)}")

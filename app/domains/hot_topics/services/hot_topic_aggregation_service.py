@@ -2,16 +2,17 @@
 import logging
 import json
 import time
-from datetime import date
-from typing import List, Dict, Any, Optional
+from datetime import date, datetime
+from typing import List, Dict, Any, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from app.infrastructure.database.repositories.hot_topic_repository import HotTopicRepository,UnifiedHotTopicRepository
-
-from app.infrastructure.llm_providers.factory import LLMProviderFactory # 假设已有
+from app.infrastructure.database.repositories.hot_topic_repository import HotTopicRepository, UnifiedHotTopicRepository
+from app.infrastructure.llm_providers.factory import LLMProviderFactory
 from app.infrastructure.llm_providers.base import LLMProviderInterface
 from app.core.exceptions import APIException
+from app.core.status_codes import EXTERNAL_API_ERROR, PROVIDER_NOT_FOUND
+from app.infrastructure.database.repositories.llm_repository import LLMProviderRepository
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +25,85 @@ class HotTopicAggregationService:
         db_session: Session,
         hot_topic_repo: HotTopicRepository,
         unified_topic_repo: UnifiedHotTopicRepository,
-        llm_provider: LLMProviderInterface # 需要注入配置好的LLM Provider
+        llm_provider: Optional[LLMProviderInterface] = None # 现在允许外部注入或在内部创建
     ):
         self.db_session = db_session
         self.hot_topic_repo = hot_topic_repo
         self.unified_topic_repo = unified_topic_repo
-        self.llm_provider = llm_provider # 示例：需要通过工厂和配置创建
+        self.llm_provider = llm_provider # 可以是None，将在需要时初始化
+
+    def _init_llm_provider(self, provider_type: str = None) -> Tuple[bool, str]:
+        """
+        初始化LLM提供商，如果已经初始化则跳过
+        
+        Args:
+            provider_type: 可选的提供商类型指定，如果不提供则使用数据库中的活跃提供商
+            
+        Returns:
+            成功标志和错误消息
+        """
+        if self.llm_provider:
+            return True, ""  # 已经初始化
+            
+        try:
+            # 从数据库获取提供商配置
+            provider_repo = LLMProviderRepository(self.db_session)
+            providers = provider_repo.get_all_providers()
+            
+            # 查找活跃的提供商
+            if provider_type:
+                active_provider_config = next((p for p in providers if p.get('provider_type').lower() == provider_type.lower() and p.get('is_active')), None)
+            else:
+                active_provider_config = next((p for p in providers if p.get('is_active')), None)
+                
+            if not active_provider_config:
+                raise APIException("没有找到可用的LLM提供商配置", PROVIDER_NOT_FOUND)
+                
+            provider_type = active_provider_config.get("provider_type")
+            api_key = active_provider_config.get("api_key")
+            
+            if not api_key and provider_type.lower() != "anthropic": # Anthropic可能不需要API密钥
+                raise APIException(f"提供商 {provider_type} 的API Key未配置", EXTERNAL_API_ERROR)
+                
+            # 查看和打印工厂方法所需参数
+            logger.info(f"开始初始化提供商: {provider_type}, api_key长度: {len(api_key) if api_key else 0}")
+            
+            if provider_type.lower() == "volcano":
+                # 直接创建Volcano提供商实例并初始化
+                # 绕过工厂方法，因为工厂可能没有正确传递api_key
+                try:
+                    from app.infrastructure.llm_providers.volcano_provider import VolcanoProvider
+                    provider = VolcanoProvider()
+                    # 显式调用initialize并传递api_key参数
+                    provider.initialize(api_key=api_key)
+                    self.llm_provider = provider
+                    logger.info("成功直接初始化Volcano提供商")
+                except Exception as e:
+                    logger.error(f"初始化Volcano提供商失败: {str(e)}", exc_info=True)
+                    raise APIException(f"无法初始化Volcano提供商: {str(e)}")
+            else:
+                # 对于其他提供商，尝试使用工厂方法
+                try:
+                    # 将api_key添加到config字典中
+                    config = {"api_key": api_key}
+                    self.llm_provider = LLMProviderFactory.create_provider(
+                        provider_name=provider_type,
+                        **config  # 通过config传递api_key
+                    )
+                    logger.info(f"成功使用工厂方法初始化{provider_type}提供商")
+                except Exception as e:
+                    logger.error(f"使用工厂方法初始化{provider_type}提供商失败: {str(e)}", exc_info=True)
+                    raise APIException(f"无法初始化{provider_type}提供商: {str(e)}")
+            
+            logger.info(f"成功实例化LLM提供商: {provider_type}")
+            return True, ""
+            
+        except APIException as e:
+            logger.error(f"实例化LLM提供商失败: {e.message}")
+            return False, e.message
+        except Exception as e:
+            logger.error(f"实例化LLM提供商时发生未知错误: {str(e)}", exc_info=True)
+            return False, f"实例化LLM提供商时出错: {str(e)}"
 
     def _prepare_prompt(self, topics: List[Dict[str, Any]], target_date: date) -> str:
         """准备用于AI聚合的Prompt"""
@@ -94,6 +168,39 @@ class HotTopicAggregationService:
         """
         return prompt.strip()
 
+    def trigger_aggregation(self, topic_date_str: str, model_id: Optional[str] = None, provider_type: Optional[str] = None) -> Dict[str, Any]:
+        """
+        触发热点聚合任务
+        
+        Args:
+            topic_date_str: 需要聚合的热点日期字符串(YYYY-MM-DD)
+            model_id: 可选的模型ID
+            provider_type: 可选的提供商类型
+            
+        Returns:
+            聚合任务的结果
+        """
+        # 1. 验证日期格式
+        try:
+            topic_date = datetime.strptime(topic_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return {
+                "status": "error", 
+                "message": "无效的日期格式，应为YYYY-MM-DD"
+            }
+            
+        # 2. 初始化LLM提供商
+        if not self.llm_provider:
+            success, error_message = self._init_llm_provider(provider_type)
+            if not success:
+                return {
+                    "status": "llm_error",
+                    "message": error_message
+                }
+        
+        # 调用聚合方法
+        return self.aggregate_topics_for_date(topic_date, model_id)
+        
     def aggregate_topics_for_date(self, topic_date: date, model_id: Optional[str] = None) -> Dict[str, Any]:
         """
         执行指定日期的热点聚合任务
@@ -108,6 +215,15 @@ class HotTopicAggregationService:
         start_time = time.time()
         logger.info(f"开始聚合日期 {topic_date.isoformat()} 的热点话题...")
 
+        # 确保LLM提供商已初始化
+        if not self.llm_provider:
+            success, error_message = self._init_llm_provider()
+            if not success:
+                return {
+                    "status": "llm_error",
+                    "message": error_message
+                }
+
         # 1. 获取当天的所有有效热点
         # 注意：可能需要分页获取如果数据量很大，这里简化为一次获取
         raw_topics_result = self.hot_topic_repo.get_topics(filters={"topic_date": topic_date.isoformat(), "status": 1}, page=1, per_page=500) # 假设每页500条能获取完
@@ -121,7 +237,7 @@ class HotTopicAggregationService:
 
         # 2. 准备并调用AI进行聚合
         prompt = self._prepare_prompt(raw_topics, topic_date)
-        ai_model_to_use = model_id or self.llm_provider.default_model # 获取模型ID
+        ai_model_to_use = model_id or getattr(self.llm_provider, "default_model", None) # 获取模型ID
 
         try:
             logger.info(f"调用AI模型 {ai_model_to_use} 进行聚合...")
@@ -145,6 +261,9 @@ class HotTopicAggregationService:
             # AI 可能返回被 markdown 包裹的 JSON，需要提取
             if "```json" in aggregated_result_text:
                  aggregated_result_text = aggregated_result_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in aggregated_result_text:
+                 # 尝试提取任何代码块
+                 aggregated_result_text = aggregated_result_text.split("```")[1].split("```")[0].strip()
 
             try:
                 aggregated_groups = json.loads(aggregated_result_text)
@@ -156,7 +275,6 @@ class HotTopicAggregationService:
             except ValueError as e:
                 logger.error(f"AI返回的数据结构错误: {e}\n原始数据: {aggregated_groups}")
                 raise APIException(f"AI返回数据结构错误: {e}")
-
 
         except APIException as e:
              logger.error(f"AI聚合调用失败: {e.message}")
@@ -182,6 +300,17 @@ class HotTopicAggregationService:
                 keywords = []
                 logger.warning(f"聚合组 '{group.get('unified_title')}' 没有生成关键词，使用空列表。")
             
+            # 提取第一个平台的第一个话题URL作为代表性URL
+            related_ids = group.get("related_topic_ids", [])
+            representative_url = None
+            
+            if related_ids:
+                # 找到对应的原始话题
+                for topic in raw_topics:
+                    if topic["id"] in related_ids and topic.get("topic_url"):
+                        representative_url = topic.get("topic_url")
+                        break
+            
             unified_data = {
                 "topic_date": topic_date,
                 "unified_title": group["unified_title"],
@@ -190,13 +319,12 @@ class HotTopicAggregationService:
                 "related_topic_ids": group.get("related_topic_ids", []),
                 "source_platforms": list(set(group.get("source_platforms", []))), # 去重
                 "topic_count": len(group.get("related_topic_ids", [])),
+                "representative_url": representative_url,
                 "ai_model_used": ai_model_to_use,
                 "ai_processing_time": ai_processing_time / len(aggregated_groups) if aggregated_groups else 0
-                # 可以增加 representative_url 和 aggregated_hotness_score 的逻辑
             }
             unified_topics_to_create.append(unified_data)
             processed_raw_topic_ids.update(group.get("related_topic_ids", []))
-
 
         # 4. 先删除旧的聚合数据（如果需要重新生成当天的）
         logger.info(f"准备删除日期 {topic_date.isoformat()} 的旧统一热点数据...")
