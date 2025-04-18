@@ -103,6 +103,9 @@ class UnifiedHotTopic(db.Model):
     unified_summary = Column(Text, comment="AI生成的统一摘要") # 可选
     representative_url = Column(String(1024), comment="代表性链接 (可选, AI选择或默认选择第一个)")
     
+    # 新增：关键词字段 (JSON格式的字符串数组)
+    keywords = Column(JSON, comment="AI提取的关键词列表 ['关键词1', '关键词2', ...]")
+    
     # 关键字段：存储关联的原始热点ID列表 (JSON格式)
     related_topic_ids = Column(JSON, nullable=False, comment="关联的原始HotTopic ID列表") 
     # 存储来源平台列表 (JSON格式)

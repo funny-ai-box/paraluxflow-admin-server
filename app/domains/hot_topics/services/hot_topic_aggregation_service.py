@@ -55,9 +55,10 @@ class HotTopicAggregationService:
         要求：
         1. 识别相似的热点并将它们分组。
         2. 为每一个识别出的组生成一个简洁、准确、中立的统一标题 (unified_title)，不超过30个字。
-        3. (可选) 为每个组生成一个50字以内的统一摘要 (unified_summary)。
-        4. 在每个组中，必须包含所有被归入该组的原始热点的 ID 列表 (related_topic_ids)。
-        5. 在每个组中，必须包含所有涉及的平台名称列表 (source_platforms)。
+        3. 为每个组生成一个50字以内的统一摘要 (unified_summary)。
+        4. 为每个组提取2-3个关键词 (keywords)，这些关键词应能准确代表该热点的核心内容，用于后续检索相关文章。
+        5. 在每个组中，必须包含所有被归入该组的原始热点的 ID 列表 (related_topic_ids)。
+        6. 在每个组中，必须包含所有涉及的平台名称列表 (source_platforms)。
 
         原始热点数据 (JSON格式):
         ```json
@@ -65,27 +66,30 @@ class HotTopicAggregationService:
         ```
 
         输出格式要求：
-        请严格按照以下JSON格式返回结果，返回一个包含多个组对象的列表。每个组对象包含 unified_title, unified_summary (可选), related_topic_ids, source_platforms。
+        请严格按照以下JSON格式返回结果，返回一个包含多个组对象的列表。每个组对象包含 unified_title, unified_summary, keywords, related_topic_ids, source_platforms。
 
         ```json
         [
-          {{
+        {{
             "unified_title": "统一标题1",
-            "unified_summary": "统一摘要1 (可选)",
+            "unified_summary": "统一摘要1",
+            "keywords": ["关键词1", "关键词2", "关键词3"],
             "related_topic_ids": [原始ID1, 原始ID5, 原始ID10],
             "source_platforms": ["平台A", "平台B"]
-          }},
-          {{
+        }},
+        {{
             "unified_title": "统一标题2",
-            "unified_summary": "统一摘要2 (可选)",
+            "unified_summary": "统一摘要2",
+            "keywords": ["关键词1", "关键词2"],
             "related_topic_ids": [原始ID2, 原始ID8],
             "source_platforms": ["平台C"]
-          }}
-          // ... 更多组
+        }}
+        // ... 更多组
         ]
         ```
         确保 related_topic_ids 中的 ID 是来自上方提供的原始热点数据中的 ID。
         确保 source_platforms 中的名称是来自原始热点数据的平台名称。
+        确保每个组都有2-3个关键词，每个关键词应该是单个词或短语，不超过5个字。
         如果某些热点无法与其他热点合并成组，则它们**不应**出现在最终的输出中。只输出包含**至少两个**原始热点的聚合组。
         """
         return prompt.strip()
@@ -163,37 +167,35 @@ class HotTopicAggregationService:
 
         # 3. 处理并存储聚合结果
         unified_topics_to_create = []
-        processed_raw_topic_ids = set() # 记录已被聚合的原始热点ID
-
+        processed_raw_topic_ids = set()
+        
         for group in aggregated_groups:
-            # 验证group结构
+            # 验证组数据结构
             if not all(k in group for k in ["unified_title", "related_topic_ids", "source_platforms"]):
                 logger.warning(f"AI返回的组数据不完整，跳过: {group}")
                 continue
             
-            related_ids = group.get("related_topic_ids", [])
-            if not isinstance(related_ids, list) or not related_ids:
-                 logger.warning(f"AI返回的组related_topic_ids无效，跳过: {group}")
-                 continue
-                 
-            # 确保聚合了至少两个原始热点 (根据Prompt要求)
-            # if len(related_ids) < 2:
-            #     logger.info(f"聚合组 '{group.get('unified_title')}' 只包含一个原始热点，跳过。")
-            #     continue
-
+            # 确保 keywords 字段存在
+            keywords = group.get("keywords", [])
+            if not keywords or not isinstance(keywords, list):
+                # 如果 AI 没有生成关键词，创建一个默认的空列表
+                keywords = []
+                logger.warning(f"聚合组 '{group.get('unified_title')}' 没有生成关键词，使用空列表。")
+            
             unified_data = {
                 "topic_date": topic_date,
                 "unified_title": group["unified_title"],
                 "unified_summary": group.get("unified_summary"), # 可选
-                "related_topic_ids": related_ids, # 存储原始ID列表
+                "keywords": keywords,  # 添加关键词
+                "related_topic_ids": group.get("related_topic_ids", []),
                 "source_platforms": list(set(group.get("source_platforms", []))), # 去重
-                "topic_count": len(related_ids),
+                "topic_count": len(group.get("related_topic_ids", [])),
                 "ai_model_used": ai_model_to_use,
-                "ai_processing_time": ai_processing_time / len(aggregated_groups) if aggregated_groups else 0 # 分摊时间
+                "ai_processing_time": ai_processing_time / len(aggregated_groups) if aggregated_groups else 0
                 # 可以增加 representative_url 和 aggregated_hotness_score 的逻辑
             }
             unified_topics_to_create.append(unified_data)
-            processed_raw_topic_ids.update(related_ids) # 添加到已处理集合
+            processed_raw_topic_ids.update(group.get("related_topic_ids", []))
 
 
         # 4. 先删除旧的聚合数据（如果需要重新生成当天的）

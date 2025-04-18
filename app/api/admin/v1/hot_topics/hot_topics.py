@@ -5,7 +5,9 @@ import logging
 from datetime import datetime
 from app.core.exceptions import APIException
 from app.domains.hot_topics.services.hot_topic_aggregation_service import HotTopicAggregationService
+from app.domains.rss.services.vectorization_service import ArticleVectorizationService
 from app.infrastructure.database.repositories.llm_repository import LLMProviderRepository
+from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
 from app.infrastructure.llm_providers.factory import LLMProviderFactory
 from flask import Blueprint, request, g
 
@@ -15,7 +17,8 @@ from app.core.status_codes import EXTERNAL_API_ERROR, PARAMETER_ERROR
 from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.hot_topic_repository import HotTopicTaskRepository, HotTopicRepository, HotTopicLogRepository, UnifiedHotTopicRepository
 from app.domains.hot_topics.services.hot_topic_service import HotTopicService
-
+from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
 logger = logging.getLogger(__name__)
 
 # 创建蓝图
@@ -410,14 +413,10 @@ def trigger_hot_topic_aggregation():
         hot_topic_repo = HotTopicRepository(db_session)
         unified_topic_repo = UnifiedHotTopicRepository(db_session) # Use the new repository
 
-        # 4. Instantiate LLM Provider (Needs configuration)
-        # ---- This part requires proper configuration management ----
-        # Example: Fetching config for the default/first active provider
-        # In a real app, you might select the provider based on rules or config
+
         llm_provider_instance = None
         try:
-             # You need a way to get provider configurations (e.g., from DB or config file)
-             # Here's a placeholder assuming you fetch the first active provider's config
+
          
              provider_repo = LLMProviderRepository(db_session)
              providers = provider_repo.get_all_providers()
@@ -525,18 +524,16 @@ def get_unified_hot_topics():
                      "topic_date": None
                  })
             logger.info(f"未指定日期，使用最新日期: {target_date.isoformat()}")
-            
-        # 3. Instantiate Repositories
-        # db_session and unified_topic_repo are already instantiated
+
         hot_topic_repo = HotTopicRepository(db_session)
 
-        # 4. Fetch Paginated Unified Topics for the target date
+
         unified_result = unified_topic_repo.get_unified_topics_by_date(target_date, page, per_page)
         unified_topics_list = unified_result.get("list", [])
 
         if not unified_topics_list:
             logger.info(f"日期 {target_date.isoformat()} 没有找到统一热点数据 (Page: {page})")
-            # Return empty list for the specific page
+
             return success_response({
                  "list": [], "total": unified_result.get('total', 0), 
                  "pages": unified_result.get('pages', 0), 
@@ -601,3 +598,107 @@ def get_unified_hot_topics():
     except Exception as e:
         logger.error(f"获取统一热点列表失败: {str(e)}", exc_info=True)
         return error_response(PARAMETER_ERROR, f"获取统一热点列表失败: {str(e)}")
+
+@hot_topics_bp.route("/related_articles", methods=["GET"])
+@auth_required
+def get_hot_topic_related_articles():
+    """获取与热点相关的RSS文章
+    
+    查询参数:
+    - topic_id: 统一热点ID
+    - limit: 返回的最大文章数量，默认10
+    - days_range: 查找的最大天数范围，默认7
+    
+    Returns:
+        相关文章列表
+    """
+    try:
+        # 获取参数
+        topic_id = request.args.get("topic_id")
+        limit = request.args.get("limit", 10, type=int)
+        days_range = request.args.get("days_range", 7, type=int)
+        
+        if not topic_id:
+            return error_response(PARAMETER_ERROR, "缺少topic_id参数")
+        
+        # 创建依赖组件
+        db_session = get_db_session()
+        unified_topic_repo = UnifiedHotTopicRepository(db_session)
+        hot_topic_repo = HotTopicRepository(db_session)
+        article_repo = RssFeedArticleRepository(db_session)
+        
+        # 创建向量化服务
+
+        content_repo = RssFeedArticleContentRepository(db_session)
+        task_repo = RssFeedArticleVectorizationTaskRepository(db_session)
+        
+        vectorization_service = ArticleVectorizationService(
+            article_repo=article_repo,
+            content_repo=content_repo,
+            task_repo=task_repo
+        )
+        
+        # 创建搜索服务
+        from app.domains.hot_topics.services.hot_topic_search_service import HotTopicSearchService
+        search_service = HotTopicSearchService(
+            unified_topic_repo=unified_topic_repo,
+            hot_topic_repo=hot_topic_repo,
+            article_repo=article_repo,
+            vectorization_service=vectorization_service
+        )
+        
+        # 查找相关文章
+        result = search_service.find_related_articles(
+            unified_topic_id=topic_id,
+            limit=limit,
+            days_range=days_range
+        )
+        
+        return success_response(result)
+    except APIException as e:
+        return error_response(e.code, str(e))
+    except Exception as e:
+        logger.error(f"获取热点相关文章失败: {str(e)}", exc_info=True)
+        return error_response(PARAMETER_ERROR, f"获取热点相关文章失败: {str(e)}")
+
+@hot_topics_bp.route("/unified_topic_detail", methods=["GET"])
+@auth_required
+def get_unified_topic_detail():
+    """获取统一热点详情
+    
+    查询参数:
+    - topic_id: 统一热点ID
+    
+    Returns:
+        统一热点详情
+    """
+    try:
+        # 获取参数
+        topic_id = request.args.get("topic_id")
+        
+        if not topic_id:
+            return error_response(PARAMETER_ERROR, "缺少topic_id参数")
+        
+        # 创建依赖组件
+        db_session = get_db_session()
+        unified_topic_repo = UnifiedHotTopicRepository(db_session)
+        hot_topic_repo = HotTopicRepository(db_session)
+        
+        # 创建搜索服务
+        from app.domains.hot_topics.services.hot_topic_search_service import HotTopicSearchService
+        search_service = HotTopicSearchService(
+            unified_topic_repo=unified_topic_repo,
+            hot_topic_repo=hot_topic_repo,
+            article_repo=None,  # 不需要文章仓库
+            vectorization_service=None  # 不需要向量化服务
+        )
+        
+        # 获取统一热点详情
+        result = search_service.get_topic_by_id(topic_id)
+        
+        return success_response(result)
+    except APIException as e:
+        return error_response(e.code, str(e))
+    except Exception as e:
+        logger.error(f"获取统一热点详情失败: {str(e)}", exc_info=True)
+        return error_response(PARAMETER_ERROR, f"获取统一热点详情失败: {str(e)}")

@@ -628,6 +628,26 @@ class UnifiedHotTopicRepository:
             self.db.rollback()
             logger.error(f"创建统一热点失败: {str(e)}")
             return None
+    def get_topic_by_id(self, topic_id: str) -> Optional[Dict[str, Any]]:
+        """根据ID获取统一热点
+        
+        Args:
+            topic_id: 统一热点ID
+            
+        Returns:
+            统一热点信息，如果未找到则返回None
+        """
+        try:
+            topic = self.db.query(UnifiedHotTopic).filter(UnifiedHotTopic.id == topic_id).first()
+            
+            if not topic:
+                logger.warning(f"未找到ID为 {topic_id} 的统一热点")
+                return None
+            
+            return self._topic_to_dict(topic)
+        except SQLAlchemyError as e:
+            logger.error(f"根据ID获取统一热点失败: {str(e)}")
+            return None
     def get_latest_unified_topic_date(self) -> Optional[date]:
         """获取存在统一热点的最新日期"""
         try:
@@ -695,6 +715,7 @@ class UnifiedHotTopicRepository:
             "unified_title": topic.unified_title,
             "unified_summary": topic.unified_summary,
             "representative_url": topic.representative_url,
+            "keywords": topic.keywords,  # 添加关键词
             "related_topic_ids": topic.related_topic_ids, # 保持 JSON
             "source_platforms": topic.source_platforms, # 保持 JSON
             "aggregated_hotness_score": topic.aggregated_hotness_score,
