@@ -353,9 +353,9 @@ class ArticleVectorizationService:
             
             # 从结果中提取向量
             vector = embedding_result["embeddings"][0]
-            
+            feed_id = article.get("feed_id", "unknown")
             # 生成向量ID
-            vector_id = f"article_{article_id}_{int(time.time())}"
+            vector_id = f"article_{feed_id}_{article_id}"
             
             # 准备元数据
             metadata = {
