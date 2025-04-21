@@ -68,7 +68,6 @@ class HotTopicService:
         
         return task
     
-    
     def schedule_task(self, user_id: str, platforms: List[str], schedule_time: str, 
                     recurrence: Optional[str] = None) -> Dict[str, Any]:
         """创建定时任务
@@ -151,6 +150,19 @@ class HotTopicService:
             raise Exception(f"获取任务详情失败: {err}")
         
         return task
+    
+    def save_crawl_results(self, task_id: str, platform: str, result_data: Dict[str, Any]) -> bool:
+        """保存爬取结果
+        
+        Args:
+            task_id: 任务ID
+            platform: 平台
+            result_data: 结果数据
+            
+        Returns:
+            是否保存成功
+        """
+        return self.process_task_result(task_id, platform, result_data)
     
     def process_task_result(self, task_id: str, platform: str, result_data: Dict[str, Any]) -> bool:
         try:
