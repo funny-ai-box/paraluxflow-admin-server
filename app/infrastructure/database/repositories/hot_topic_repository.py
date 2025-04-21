@@ -270,41 +270,7 @@ class HotTopicRepository:
                     # 捕获重复记录错误
                     self.db.rollback()  # 回滚当前事务
                     logger.warning(f"话题重复，尝试更新: {data.get('topic_title')}, 错误: {str(e)}")
-                    
-                    # 查找已存在的记录
-                    existing_topic = self.db.query(HotTopic).filter(
-                        HotTopic.topic_date == data["topic_date"],
-                        HotTopic.platform == data["platform"],
-                        HotTopic.topic_title == data["topic_title"]
-                    ).first()
-                    
-                    # 如果找到已存在的记录，可以选择更新它
-                    if existing_topic:
-                        logger.info(f"找到已存在的话题，进行更新: {data.get('topic_title')}")
-                        # 更新排名、热度等信息
-                        if "rank" in data:
-                            existing_topic.rank = data["rank"]
-                        if "hot_value" in data:
-                            existing_topic.hot_value = data["hot_value"]
-                        if "rank_change" in data:
-                            existing_topic.rank_change = data["rank_change"]
-                        if "heat_level" in data:
-                            existing_topic.heat_level = data["heat_level"]
-                        if "is_hot" in data:
-                            existing_topic.is_hot = data["is_hot"]
-                        if "is_new" in data:
-                            existing_topic.is_new = data["is_new"]
-                        
-                        # 更新批次和任务信息
-                        existing_topic.task_id = data["task_id"]
-                        existing_topic.batch_id = data["batch_id"]
-                        existing_topic.crawler_id = data.get("crawler_id")
-                        existing_topic.crawl_time = data.get("crawl_time")
-                        existing_topic.updated_at = datetime.datetime.now()
-                        success_count += 1
-                    else:
-                        logger.warning(f"无法找到已存在的话题进行更新: {data.get('topic_title')}")
-                        error_count += 1
+
                 except Exception as e:
                     logger.error(f"添加话题失败: {data.get('topic_title')}, 错误: {str(e)}")
                     error_count += 1

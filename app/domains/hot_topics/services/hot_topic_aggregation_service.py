@@ -418,15 +418,7 @@ class HotTopicAggregationService:
                 logger.error(f"批量创建统一热点失败，日期: {topic_date.isoformat()}")
                 return {"status": "db_error", "message": "存储统一热点失败"}
             
-            # 6. 向量化新创建的热点
-            vectorized_count = 0
-            for unified_topic in unified_topics_to_create:
-                # 获取已创建的统一热点（包含ID）
-                unified_topic['id'] = self.unified_topic_repo._generate_id(unified_topic['unified_title'])
-                if self._vectorize_topic(unified_topic):
-                    vectorized_count += 1
-            
-            logger.info(f"成功向量化 {vectorized_count}/{len(unified_topics_to_create)} 个统一热点")
+           
         else:
             logger.info(f"日期 {topic_date.isoformat()} 没有生成有效的聚合热点组。")
             
@@ -437,6 +429,5 @@ class HotTopicAggregationService:
             "status": "success",
             "unified_topics_created": len(unified_topics_to_create),
             "raw_topics_processed": len(processed_raw_topic_ids),
-            "vectorized_count": vectorized_count if unified_topics_to_create else 0,
             "total_time_seconds": round(total_time, 2)
         }

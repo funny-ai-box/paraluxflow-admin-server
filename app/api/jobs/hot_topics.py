@@ -108,7 +108,24 @@ def submit_hot_topics_result():
         topic_service = HotTopicService(task_repo, topic_repo)
         
         # 保存爬取结果
-        result = topic_service.save_crawl_results(task_id, platform, batch_id, topics)
+        result_data = {
+            "batch_id": batch_id,
+            "topics": topics,
+            "topic_count": topic_count,
+            "status": status,
+            "request_started_at": data.get("request_started_at"),
+            "request_ended_at": data.get("request_ended_at"),
+            "request_duration": data.get("request_duration"),
+            "processing_time": data.get("processing_time"),
+            "memory_usage": data.get("memory_usage"),
+            "cpu_usage": data.get("cpu_usage"),
+            "crawler_id": data.get("crawler_id"),
+            "crawler_host": data.get("crawler_host"),
+            "crawler_ip": data.get("crawler_ip"),
+            "topic_date": data.get("topic_date")  # 添加日期信息
+        }
+
+        result = topic_service.save_crawl_results(task_id, platform, result_data)
         
         # 保存日志数据
         log_data = {
