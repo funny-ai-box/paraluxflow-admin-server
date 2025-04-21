@@ -43,7 +43,21 @@ class HotTopicTaskRepository:
             self.db.rollback()
             logger.error(f"创建热点爬取任务失败: {str(e)}")
             return str(e), None
-
+    def get_task_by_id(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """根据任务ID获取任务
+        
+        Args:
+            task_id: 任务ID
+            
+        Returns:
+            任务信息
+        """
+        try:
+            task = self.db.query(HotTopicTask).filter(HotTopicTask.task_id == task_id).first()
+            return self._task_to_dict(task) if task else None
+        except SQLAlchemyError as e:
+            logger.error(f"获取热点爬取任务失败, ID={task_id}: {str(e)}")
+            return None
     def update_task(self, task_id: str, update_data: Dict[str, Any]) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """更新热点爬取任务
         

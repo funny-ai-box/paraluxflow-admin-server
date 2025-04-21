@@ -13,24 +13,30 @@ from app.infrastructure.llm_providers.base import LLMProviderInterface
 from app.core.exceptions import APIException
 from app.core.status_codes import EXTERNAL_API_ERROR, PROVIDER_NOT_FOUND
 from app.infrastructure.database.repositories.llm_repository import LLMProviderRepository
+from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
+from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
+from app.domains.rss.services.vectorization_service import ArticleVectorizationService
 
 logger = logging.getLogger(__name__)
 
 class HotTopicAggregationService:
     """
-    负责使用AI聚合不同平台的热点话题服务
+    负责使用AI聚合不同平台的热点话题服务，并进行向量化处理
     """
     def __init__(
         self,
         db_session: Session,
         hot_topic_repo: HotTopicRepository,
         unified_topic_repo: UnifiedHotTopicRepository,
-        llm_provider: Optional[LLMProviderInterface] = None # 现在允许外部注入或在内部创建
+        llm_provider: Optional[LLMProviderInterface] = None,
+        vectorization_service: Optional[ArticleVectorizationService] = None
     ):
         self.db_session = db_session
         self.hot_topic_repo = hot_topic_repo
         self.unified_topic_repo = unified_topic_repo
-        self.llm_provider = llm_provider # 可以是None，将在需要时初始化
+        self.llm_provider = llm_provider
+        self.vectorization_service = vectorization_service
 
     def _init_llm_provider(self, provider_type: str = None) -> Tuple[bool, str]:
         """
@@ -105,6 +111,33 @@ class HotTopicAggregationService:
             logger.error(f"实例化LLM提供商时发生未知错误: {str(e)}", exc_info=True)
             return False, f"实例化LLM提供商时出错: {str(e)}"
 
+    def _init_vectorization_service(self) -> Tuple[bool, str]:
+        """初始化向量化服务"""
+        if self.vectorization_service:
+            return True, ""  # 已经初始化
+            
+        try:
+            # 创建仓库实例
+            article_repo = RssFeedArticleRepository(self.db_session)
+            content_repo = RssFeedArticleContentRepository(self.db_session)
+            task_repo = RssFeedArticleVectorizationTaskRepository(self.db_session)
+            
+            # 创建向量化服务，使用专门的热点集合
+            self.vectorization_service = ArticleVectorizationService(
+                article_repo=article_repo,
+                content_repo=content_repo,
+                task_repo=task_repo,
+                collection_name="hot_topics",  # 使用专门的集合存储热点向量
+                provider_type="volcano"  # 使用火山引擎的向量化服务
+            )
+            
+            logger.info("成功初始化向量化服务")
+            return True, ""
+            
+        except Exception as e:
+            logger.error(f"初始化向量化服务失败: {str(e)}", exc_info=True)
+            return False, f"初始化向量化服务失败: {str(e)}"
+
     def _prepare_prompt(self, topics: List[Dict[str, Any]], target_date: date) -> str:
         """准备用于AI聚合的Prompt"""
         
@@ -168,6 +201,53 @@ class HotTopicAggregationService:
         """
         return prompt.strip()
 
+    def _vectorize_topic(self, unified_topic: Dict[str, Any]) -> bool:
+        """对统一热点话题进行向量化"""
+        try:
+            if not self.vectorization_service:
+                success, error_msg = self._init_vectorization_service()
+                if not success:
+                    logger.error(f"无法初始化向量化服务: {error_msg}")
+                    return False
+            
+            # 准备向量化内容
+            content_to_vectorize = f"{unified_topic['unified_title']} {' '.join(unified_topic.get('keywords', []))} {unified_topic.get('unified_summary', '')}"
+            
+            # 获取向量
+            vector = self.vectorization_service.get_embedding(content_to_vectorize)
+            if not vector:
+                logger.error(f"向量生成失败: {unified_topic['id']}")
+                return False
+            
+            # 存储向量
+            vector_id = unified_topic['id']
+            metadata = {
+                "topic_date": unified_topic['topic_date'].isoformat(),
+                "unified_title": unified_topic['unified_title'],
+                "keywords": unified_topic.get('keywords', []),
+                "source_platforms": unified_topic.get('source_platforms', []),
+                "topic_count": unified_topic.get('topic_count', 0)
+            }
+            
+            # 确保向量存储已初始化
+            if not self.vectorization_service.vector_store:
+                self.vectorization_service._init_services()
+            
+            # 存储向量
+            self.vectorization_service.vector_store.upsert(
+                index_name="hot_topics",
+                vector_id=vector_id,
+                embeddings=vector,
+                metadata=metadata
+            )
+            
+            logger.info(f"成功向量化统一热点话题: {unified_topic['id']}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"热点话题向量化失败: {str(e)}", exc_info=True)
+            return False
+
     def trigger_aggregation(self, topic_date_str: str, model_id: Optional[str] = None, provider_type: Optional[str] = None) -> Dict[str, Any]:
         """
         触发热点聚合任务
@@ -200,7 +280,7 @@ class HotTopicAggregationService:
         
         # 调用聚合方法
         return self.aggregate_topics_for_date(topic_date, model_id)
-        
+
     def aggregate_topics_for_date(self, topic_date: date, model_id: Optional[str] = None) -> Dict[str, Any]:
         """
         执行指定日期的热点聚合任务
@@ -337,6 +417,16 @@ class HotTopicAggregationService:
             if not success:
                 logger.error(f"批量创建统一热点失败，日期: {topic_date.isoformat()}")
                 return {"status": "db_error", "message": "存储统一热点失败"}
+            
+            # 6. 向量化新创建的热点
+            vectorized_count = 0
+            for unified_topic in unified_topics_to_create:
+                # 获取已创建的统一热点（包含ID）
+                unified_topic['id'] = self.unified_topic_repo._generate_id(unified_topic['unified_title'])
+                if self._vectorize_topic(unified_topic):
+                    vectorized_count += 1
+            
+            logger.info(f"成功向量化 {vectorized_count}/{len(unified_topics_to_create)} 个统一热点")
         else:
             logger.info(f"日期 {topic_date.isoformat()} 没有生成有效的聚合热点组。")
             
@@ -347,5 +437,6 @@ class HotTopicAggregationService:
             "status": "success",
             "unified_topics_created": len(unified_topics_to_create),
             "raw_topics_processed": len(processed_raw_topic_ids),
+            "vectorized_count": vectorized_count if unified_topics_to_create else 0,
             "total_time_seconds": round(total_time, 2)
         }
