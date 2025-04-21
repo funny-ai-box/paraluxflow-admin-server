@@ -9,15 +9,10 @@ import json
 
 from app.infrastructure.vector_stores.factory import VectorStoreFactory
 from app.infrastructure.llm_providers.factory import LLMProviderFactory
-# Import the summary generator
-from app.utils.summary_generator import generate_summary
 from app.core.exceptions import APIException
 from flask import current_app
 
 logger = logging.getLogger(__name__)
-
-# Define a minimum character length for a "good" summary
-MIN_SUMMARY_LENGTH = 100 # You can adjust this value
 
 class ArticleVectorizationService:
     """RSS文章向量化服务"""
@@ -162,7 +157,7 @@ class ArticleVectorizationService:
 
 
     def process_article_vectorization(self, article_id: int) -> Dict[str, Any]:
-        """处理单篇文章的向量化
+        """处理单篇文章的向量化 - 不再生成摘要，直接使用已有摘要
 
         Args:
             article_id: 文章ID
@@ -211,58 +206,26 @@ class ArticleVectorizationService:
             if not article:
                  raise Exception(f"未找到文章 {article_id}")
 
-            # --- Summary Generation Logic ---
-            original_summary = article.get("summary", "") # Use .get for safety
-            summary_to_use = original_summary # Start with the original
-            generated_summary_for_db = None # Will hold the generated summary if created
-            update_main_summary_in_db = False # Flag to update the main summary field
+            # 获取要使用的摘要 - 直接使用现有摘要，不生成新摘要
+            summary_to_use = article.get("summary", "")
+            
+            # 使用生成的摘要（如果存在）
+            generated_summary = article.get("generated_summary")
+            if generated_summary and len(generated_summary) > len(summary_to_use):
+                logger.info(f"文章 {article_id} 使用爬虫生成的摘要而非原始摘要")
+                summary_to_use = generated_summary
 
-            if not original_summary or len(original_summary) < MIN_SUMMARY_LENGTH:
-                logger.info(f"文章 {article_id} 摘要太短或不存在，尝试生成新摘要。")
-                content_id = article.get("content_id")
-                if not content_id:
-                    # If no content, we can't generate a summary, mark as failed
-                    logger.error(f"文章 {article_id} 缺少内容ID，无法生成摘要进行向量化。")
-                    raise Exception("文章缺少内容，无法生成摘要")
-
-                # 获取文章内容
-                err_content, content = self.content_repo.get_article_content(content_id)
-                if err_content:
-                    raise Exception(f"获取文章 {article_id} 内容失败: {err_content}")
-                if not content:
-                     raise Exception(f"未找到文章 {article_id} 的内容 (ID: {content_id})")
-
-                # 使用sumy生成摘要
-                html_content = content.get("html_content")
-                text_content = content.get("text_content")
-                newly_generated_summary = None
-
-                if html_content:
-                    newly_generated_summary = generate_summary(html=html_content, sentences_count=5) # Generate a slightly longer summary
-                elif text_content:
-                    newly_generated_summary = generate_summary(text=text_content, sentences_count=5)
-
-                generated_summary_for_db = newly_generated_summary # Store whatever was generated
-
-                # Check if the *newly generated* summary is good enough
-                if newly_generated_summary and len(newly_generated_summary) >= MIN_SUMMARY_LENGTH:
-                    logger.info(f"文章 {article_id} 使用了新生成的摘要。")
-                    summary_to_use = newly_generated_summary # Use this for vectorization AND DB update
-                    update_main_summary_in_db = True # Set flag to update main summary field
-                else:
-                    logger.warning(f"文章 {article_id} 摘要过短，生成的新摘要 ('{newly_generated_summary}') 仍然无效或过短。将使用原始内容（如果存在）或标题进行向量化。")
-                    # Fallback: Use original short summary if it exists, otherwise just title
-                    if not original_summary:
-                         summary_to_use = "" # Use empty if original was also empty/None
-                    # update_main_summary_in_db remains False
+            # 如果摘要仍然是空的，使用标题作为最后的备选
+            if not summary_to_use:
+                logger.warning(f"文章 {article_id} 没有可用摘要，将使用标题")
+                summary_to_use = article.get("title", "")
 
             # --- Vectorization ---
-            # 构建向量化文本（标题 + 最终使用的摘要）
+            # 构建向量化文本（标题 + 摘要）
             vector_text = f"{article.get('title', '')}\n{summary_to_use}".strip() # Use .get and strip
             if not vector_text: # Handle case where both title and summary are empty
                  logger.error(f"文章 {article_id} 标题和摘要均为空，无法进行向量化。")
                  raise Exception("无法生成向量化文本（标题和摘要均为空）")
-
 
             print(f"准备为文章 {article_id} 生成向量，文本片段: '{vector_text[:100]}...'") # Debug print
             embedding_result = self.llm_provider.generate_embeddings(
@@ -280,7 +243,7 @@ class ArticleVectorizationService:
             feed_id = article.get("feed_id", "unknown")
             vector_id = f"article_{feed_id}_{article_id}" # Use the article ID directly for uniqueness
 
-            # 准备元数据 (Use the summary_to_use for metadata as well)
+            # 准备元数据
             metadata = {
                 "article_id": article_id,
                 "feed_id": article.get("feed_id", "unknown"),
@@ -314,15 +277,7 @@ class ArticleVectorizationService:
                 "vectorization_status": 1  # 成功
             }
 
-            # Include generated_summary if it was created
-            if generated_summary_for_db is not None:
-                update_data["generated_summary"] = generated_summary_for_db
-
-            # *** Update the main summary field in the DB if needed ***
-            if update_main_summary_in_db:
-                 update_data["summary"] = summary_to_use # Use the newly generated & validated summary
-
-            print(f"准备更新数据库文章 {article_id} 状态及摘要(如果需要)...") # Debug print
+            print(f"准备更新数据库文章 {article_id} 状态...") # Debug print
             self.article_repo.update_article_vectorization(article_id, update_data)
             print(f"数据库文章 {article_id} 更新成功。") # Debug print
 
@@ -330,8 +285,7 @@ class ArticleVectorizationService:
                 "status": "success",
                 "article_id": article_id,
                 "vector_id": vector_id,
-                "message": "文章向量化成功",
-                "summary_updated": update_main_summary_in_db # Indicate if main summary was updated
+                "message": "文章向量化成功"
             }
         except Exception as e:
             logger.error(f"文章 {article_id} 向量化失败: {str(e)}", exc_info=True) # Log full traceback
@@ -352,15 +306,6 @@ class ArticleVectorizationService:
             # Re-raise the original vectorization error
             raise Exception(f"文章向量化失败: {str(e)}")
 
-    # --- Other methods remain the same ---
-    # start_vectorization_task
-    # _process_vectorization_task
-    # get_similar_articles
-    # search_articles
-    # get_vectorization_statistics
-
-    # (Add the remaining methods from the original file here if they were omitted for brevity)
-    # ... get_similar_articles, search_articles, get_vectorization_statistics ...
     def get_similar_articles(self, article_id: int, limit: int = 10) -> List[Dict[str, Any]]:
         """获取相似文章
 
@@ -453,9 +398,6 @@ class ArticleVectorizationService:
                     # Break if we have enough results
                     if len(result_articles) >= limit:
                         break
-                # else:
-                #      print(f"跳过结果，因为它与源文章相同或缺少 article_id: {metadata}") # Debug print
-
 
             print(f"最终返回 {len(result_articles)} 篇相似文章。") # Debug print
             return result_articles
@@ -562,14 +504,6 @@ class ArticleVectorizationService:
             failed_articles = get_count_by_status(2)
             processing_articles = get_count_by_status(3)
             pending_articles = get_count_by_status(0) # Explicitly count pending
-
-            # Verify counts add up (optional sanity check)
-            # db_counted_total = vectorized_articles + failed_articles + processing_articles + pending_articles
-            # if db_counted_total != all_articles:
-            #      logger.warning(f"数据库文章总数 ({all_articles}) 与状态计数之和 ({db_counted_total}) 不匹配！")
-
-            print(f"已向量化: {vectorized_articles}, 失败: {failed_articles}, 处理中: {processing_articles}, 待处理: {pending_articles}") # Debug print
-
 
             # --- Vector Store Statistics ---
             milvus_count = 0
