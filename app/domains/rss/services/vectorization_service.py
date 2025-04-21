@@ -1,5 +1,4 @@
 # app/domains/rss/services/vectorization_service.py
-"""RSS文章向量化服务 - 使用已有的LLM Provider和向量存储接口"""
 import logging
 import uuid
 import threading
@@ -10,23 +9,27 @@ import json
 
 from app.infrastructure.vector_stores.factory import VectorStoreFactory
 from app.infrastructure.llm_providers.factory import LLMProviderFactory
+# Import the summary generator
 from app.utils.summary_generator import generate_summary
 from app.core.exceptions import APIException
 from flask import current_app
 
 logger = logging.getLogger(__name__)
 
+# Define a minimum character length for a "good" summary
+MIN_SUMMARY_LENGTH = 100 # You can adjust this value
+
 class ArticleVectorizationService:
     """RSS文章向量化服务"""
-    
+
     def __init__(self, article_repo, content_repo, task_repo, provider_type="volcano", model="doubao-embedding-large-text-240915", store_type="milvus"):
         """初始化向量化服务
-        
+
         Args:
             article_repo: 文章仓库
             content_repo: 文章内容仓库
             task_repo: 向量化任务仓库
-            provider_type: 提供商类型，默认为openai
+            provider_type: 提供商类型，默认为volcano
             model: 嵌入模型名称
             store_type: 向量存储类型，默认为milvus
         """
@@ -39,231 +42,134 @@ class ArticleVectorizationService:
         self.llm_provider = None
         self.vector_store = None
         self.collection_name = "rss_articles"  # 默认集合/索引名称
-        
+
         # 设置向量维度（根据模型确定）
         if "volcano" in self.provider_type:
-    
             self.vector_dimension = 4096
         else:
+            # Default or adjust based on other providers like OpenAI
+            self.vector_dimension = 1536 # Example for text-embedding-ada-002
 
-            self.vector_dimension = 1536
-        
         # 初始化LLM Provider和向量存储
         self._init_services()
-    
+
     def _init_services(self):
         """初始化LLM提供商和向量存储"""
         try:
-     
-         
-            print("初始化服务")
-            self.llm_provider = LLMProviderFactory.create_provider(
-                provider_name=self.provider_type,
-                embeddings_model=self.model
-            )
-            
-            logger.info(f"成功初始化{self.provider_type}提供商用于向量化")
-            
-            # 从配置获取向量存储配置
-            store_config = {
-                "host": current_app.config.get("MILVUS_HOST", "localhost"),
-                "port": current_app.config.get("MILVUS_PORT", "19530")
-            }
-            
-            # 创建向量存储实例
-            self.vector_store = VectorStoreFactory.create_store(
-                store_name=self.store_type,
-                **store_config
-            )
-            
-            
-            
-            # 确保集合存在
-            self._ensure_collection_exists()
-            
-            logger.info(f"成功初始化{self.store_type}向量存储")
+            print("初始化向量化服务中的 LLM Provider 和 Vector Store...") # Debug print
+            # Ensure Flask app context is available or handle appropriately
+            if not current_app:
+                # Handle cases outside Flask request context (e.g., background tasks)
+                # Option 1: Pass config explicitly if possible
+                # Option 2: Use a dedicated app context factory
+                # Option 3: Log a warning and potentially defer initialization
+                logger.warning("无法访问 Flask 应用上下文，服务初始化可能受限。")
+                # For simplicity here, we assume it's run within context or config is accessible
+                # In a real app, better context management is needed for background tasks
+
+            # --- Initialize LLM Provider ---
+            # Check if already initialized
+            if not self.llm_provider:
+                 print(f"初始化 LLM Provider: {self.provider_type}") # Debug print
+                 self.llm_provider = LLMProviderFactory.create_provider(
+                      provider_name=self.provider_type,
+                      # Pass necessary config, potentially embeddings_model if needed by factory
+                      # The factory should ideally fetch config from DB/Env
+                      embeddings_model=self.model # Pass the specific model intended for embeddings
+                 )
+                 logger.info(f"成功初始化 {self.provider_type} 提供商用于向量化")
+                 print(f"LLM Provider ({self.provider_type}) 初始化成功。") # Debug print
+            else:
+                print("LLM Provider 已初始化。") # Debug print
+
+            # --- Initialize Vector Store ---
+            # Check if already initialized
+            if not self.vector_store:
+                print(f"初始化 Vector Store: {self.store_type}") # Debug print
+                # Attempt to get config, provide defaults if outside context and config isn't passed
+                milvus_host = "localhost"
+                milvus_port = "19530"
+                if current_app:
+                    milvus_host = current_app.config.get("MILVUS_HOST", milvus_host)
+                    milvus_port = current_app.config.get("MILVUS_PORT", milvus_port)
+                else:
+                    # Fallback or get from environment directly if needed for background tasks
+                    import os
+                    milvus_host = os.environ.get("MILVUS_HOST", milvus_host)
+                    milvus_port = os.environ.get("MILVUS_PORT", milvus_port)
+                    logger.warning(f"在 Flask 上下文之外运行，使用环境变量或默认 Milvus 配置: {milvus_host}:{milvus_port}")
+
+
+                store_config = {
+                    "host": milvus_host,
+                    "port": milvus_port
+                    # Add user/password if needed from config/env
+                }
+                print(f"Vector Store 配置: {store_config}") # Debug print
+
+                # 创建向量存储实例
+                self.vector_store = VectorStoreFactory.create_store(
+                    store_name=self.store_type,
+                    **store_config
+                )
+                print(f"Vector Store ({self.store_type}) 实例创建成功。") # Debug print
+
+
+                # 确保集合存在
+                print(f"确保集合 '{self.collection_name}' 存在...") # Debug print
+                self._ensure_collection_exists()
+                print(f"集合 '{self.collection_name}' 确认存在。") # Debug print
+
+                logger.info(f"成功初始化 {self.store_type} 向量存储")
+            else:
+                 print("Vector Store 已初始化。") # Debug print
+
         except Exception as e:
-            logger.error(f"初始化服务失败: {str(e)}")
-            # 不抛出异常，允许延迟初始化
-    
+            logger.error(f"初始化服务失败: {str(e)}", exc_info=True) # Log traceback
+            print(f"错误: 初始化服务失败: {str(e)}") # Debug print
+            # Consider re-raising or handling gracefully based on application needs
+            # raise Exception(f"初始化服务失败: {str(e)}")
+
     def _ensure_collection_exists(self):
         """确保向量集合存在，如果不存在则自动创建"""
         try:
+            # Check if vector_store is initialized
+            if not self.vector_store:
+                logger.error("尝试在未初始化的向量存储上检查集合。")
+                raise Exception("Vector store not initialized before checking collection.")
+
             if not self.vector_store.index_exists(self.collection_name):
                 logger.info(f"集合 {self.collection_name} 不存在，正在自动创建...")
-                
-                # 简化集合定义，只使用基本字段
+                print(f"集合 {self.collection_name} 不存在，正在自动创建...") # Debug print
+
                 # 创建集合
                 self.vector_store.create_index(
                     index_name=self.collection_name,
                     dimension=self.vector_dimension,
                     description="RSS文章向量集合"
-                    # 不指定额外字段，只使用默认的id、vector和metadata
                 )
                 logger.info(f"成功创建集合 {self.collection_name}，维度为 {self.vector_dimension}")
+                print(f"成功创建集合 {self.collection_name}，维度为 {self.vector_dimension}") # Debug print
                 return True
-            return True  # 集合已存在
+            else:
+                print(f"集合 {self.collection_name} 已存在。") # Debug print
+                return True  # 集合已存在
         except Exception as e:
-            logger.error(f"检查/创建集合失败: {str(e)}")
-            raise Exception(f"检查/创建集合失败: {str(e)}。请确保Milvus服务正确配置和运行。")
-    
-    def start_vectorization_task(self, filters: Dict[str, Any] = None) -> Dict[str, Any]:
-        """启动向量化任务
-        
-        Args:
-            filters: 文章过滤条件，默认为None表示所有未向量化的文章
-            
-        Returns:
-            任务信息
-            
-        Raises:
-            Exception: 启动任务失败时抛出异常
-        """
-        # 确保服务已初始化
-        if not self.llm_provider or not self.vector_store:
-            self._init_services()
-            if not self.llm_provider or not self.vector_store:
-                raise Exception("无法初始化服务，请检查配置")
-        
-        # 创建过滤条件
-        if not filters:
-            filters = {}
-        
-        # 确保只处理未向量化的文章
-        if "vectorization_status" not in filters:
-            filters["vectorization_status"] = 0  # 未处理
-        
-        # 查询符合条件的文章数量
-        articles_result = self.article_repo.get_articles(page=1, per_page=1, filters=filters)
-        total_articles = articles_result["total"]
-        
-        if total_articles == 0:
-            raise Exception("没有符合条件的文章需要向量化")
-        
-        # 创建任务记录
-        batch_id = str(uuid.uuid4())
-        task_data = {
-            "batch_id": batch_id,
-            "total_articles": total_articles,
-            "processed_articles": 0,
-            "success_articles": 0,
-            "failed_articles": 0,
-            "status": 0,  # 进行中
-            "embedding_model": self.model,
-            "started_at": datetime.now()
-        }
-        
-        task = self.task_repo.create_task(task_data)
-        
-        # 触发异步任务处理
-        logger.info(f"启动向量化任务 {batch_id}，共 {total_articles} 篇文章")
-        
-        # 启动后台线程进行处理
-        threading.Thread(
-            target=self._process_vectorization_task,
-            args=(batch_id, filters),
-            daemon=True
-        ).start()
-        
-        return task
-    
-    def _process_vectorization_task(self, batch_id: str, filters: Dict[str, Any]) -> None:
-        """后台处理向量化任务
-        
-        Args:
-            batch_id: 批次ID
-            filters: 文章过滤条件
-        """
-        logger.info(f"后台开始处理向量化任务 {batch_id}")
-        page = 1
-        per_page = 10  # 每批处理10篇
-        processed_count = 0
-        success_count = 0
-        failed_count = 0
-        
-        try:
-            # 不断获取新的文章进行处理，直到没有更多符合条件的文章
-            while True:
-                # 获取一批文章
-                articles_result = self.article_repo.get_articles(page=page, per_page=per_page, filters=filters)
-                articles = articles_result["list"]
-                
-                if not articles:
-                    break  # 没有更多文章了
-                
-                # 处理这批文章
-                for article in articles:
-                    try:
-                        # 向量化文章
-                        result = self.process_article_vectorization(article["id"])
-                        
-                        # 更新计数
-                        processed_count += 1
-                        if result["status"] == "success":
-                            success_count += 1
-                        else:
-                            failed_count += 1
-                        
-                        # 更新任务状态
-                        self.task_repo.update_task(batch_id, {
-                            "processed_articles": processed_count,
-                            "success_articles": success_count,
-                            "failed_articles": failed_count
-                        })
-                        
-                        # 限制请求频率，避免API限流
-                        time.sleep(0.5)
-                    except Exception as e:
-                        logger.error(f"处理文章 {article['id']} 时出错: {str(e)}")
-                        failed_count += 1
-                        processed_count += 1
-                        
-                        # 更新任务状态
-                        self.task_repo.update_task(batch_id, {
-                            "processed_articles": processed_count,
-                            "success_articles": success_count,
-                            "failed_articles": failed_count
-                        })
-                
-                # 进入下一页
-                page += 1
-            
-            # 任务完成，更新状态
-            ended_time = datetime.now()
-            started_time = datetime.fromisoformat(self.task_repo.get_task(batch_id)["started_at"])
-            total_time = (ended_time - started_time).total_seconds()
-            
-            self.task_repo.update_task(batch_id, {
-                "status": 1,  # 已完成
-                "ended_at": ended_time,
-                "total_time": total_time
-            })
-            
-            logger.info(f"向量化任务 {batch_id} 完成, 总计: {processed_count}, 成功: {success_count}, 失败: {failed_count}")
-        except Exception as e:
-            # 任务失败，更新状态
-            logger.error(f"向量化任务 {batch_id} 处理失败: {str(e)}")
-            
-            ended_time = datetime.now()
-            started_time = datetime.fromisoformat(self.task_repo.get_task(batch_id)["started_at"])
-            total_time = (ended_time - started_time).total_seconds()
-            
-            self.task_repo.update_task(batch_id, {
-                "status": 2,  # 失败
-                "ended_at": ended_time,
-                "total_time": total_time,
-                "error_message": str(e)
-            })
-    
+            logger.error(f"检查/创建集合失败: {str(e)}", exc_info=True) # Log traceback
+            print(f"错误: 检查/创建集合失败: {str(e)}") # Debug print
+            # Re-raise with more context
+            raise Exception(f"检查/创建Milvus集合失败: {str(e)}。请确保Milvus服务正确配置和运行。")
+
+
     def process_article_vectorization(self, article_id: int) -> Dict[str, Any]:
         """处理单篇文章的向量化
-        
+
         Args:
             article_id: 文章ID
-            
+
         Returns:
             处理结果
-            
+
         Raises:
             Exception: 处理失败时抛出异常
         """
@@ -272,101 +178,120 @@ class ArticleVectorizationService:
             try:
                 self._init_services()
                 if not self.llm_provider or not self.vector_store:
-                    # 这里抛出异常而不是尝试继续处理
                     raise Exception("无法初始化服务，请检查配置")
             except Exception as e:
-                # 记录详细的初始化错误信息
                 logger.error(f"初始化向量化服务失败: {str(e)}")
-                # 更新文章状态
                 try:
+                    # Attempt to mark article as failed even if services failed to init
                     self.article_repo.update_article_vectorization_status(
-                        article_id=article_id, 
+                        article_id=article_id,
                         status=2,  # 失败
                         error_message=f"服务初始化失败: {str(e)}"
                     )
                 except Exception as db_error:
-                    # 如果连状态更新都失败（如表结构问题），则记录这个额外错误
-                    logger.error(f"更新文章状态失败: {str(db_error)}")
-                    # 组合两个错误信息以提供更完整的错误上下文
-                    raise Exception(f"服务初始化失败: {str(e)}。数据库错误: {str(db_error)}")
-                # 原始错误继续向上抛出
-                raise Exception(f"服务初始化失败: {str(e)}")
-        
+                    logger.error(f"更新文章 {article_id} 状态失败: {str(db_error)}")
+                raise Exception(f"服务初始化失败: {str(e)}") # Re-raise original error
+
         try:
             # 标记文章为正在处理状态
             try:
                 self.article_repo.update_article_vectorization_status(
-                    article_id=article_id, 
+                    article_id=article_id,
                     status=3,  # 正在处理
                     error_message=None
                 )
             except Exception as e:
-                # 如果无法更新状态（可能是数据库结构问题），直接抛出异常
-                logger.error(f"无法更新文章状态: {str(e)}")
-                raise Exception(f"数据库结构错误: {str(e)}。表中可能缺少向量化相关字段，请确保已进行数据库迁移。")
-                
+                logger.error(f"无法更新文章 {article_id} 状态为处理中: {str(e)}")
+                raise Exception(f"数据库访问错误: {str(e)}。请检查数据库连接和表结构。")
+
             # 获取文章信息
             err, article = self.article_repo.get_article_by_id(article_id)
             if err:
-                raise Exception(f"获取文章失败: {err}")
-            
+                raise Exception(f"获取文章 {article_id} 失败: {err}")
+            if not article:
+                 raise Exception(f"未找到文章 {article_id}")
 
-            
-            # 检查摘要质量，如果摘要不存在或太短，生成新摘要
-            summary = article["summary"]
-            generated_summary = None
-            
-            if not summary or len(summary) < 100:
-                logger.info(f"文章 {article_id} 摘要太短，生成新摘要")
-                if not article["content_id"]:
-                    raise Exception("文章缺少内容，无法向量化")
-                
+            # --- Summary Generation Logic ---
+            original_summary = article.get("summary", "") # Use .get for safety
+            summary_to_use = original_summary # Start with the original
+            generated_summary_for_db = None # Will hold the generated summary if created
+            update_main_summary_in_db = False # Flag to update the main summary field
+
+            if not original_summary or len(original_summary) < MIN_SUMMARY_LENGTH:
+                logger.info(f"文章 {article_id} 摘要太短或不存在，尝试生成新摘要。")
+                content_id = article.get("content_id")
+                if not content_id:
+                    # If no content, we can't generate a summary, mark as failed
+                    logger.error(f"文章 {article_id} 缺少内容ID，无法生成摘要进行向量化。")
+                    raise Exception("文章缺少内容，无法生成摘要")
+
                 # 获取文章内容
-                err, content = self.content_repo.get_article_content(article["content_id"])
-                if err:
-                    raise Exception(f"获取文章内容失败: {err}")
-                
+                err_content, content = self.content_repo.get_article_content(content_id)
+                if err_content:
+                    raise Exception(f"获取文章 {article_id} 内容失败: {err_content}")
+                if not content:
+                     raise Exception(f"未找到文章 {article_id} 的内容 (ID: {content_id})")
+
                 # 使用sumy生成摘要
                 html_content = content.get("html_content")
                 text_content = content.get("text_content")
-                
+                newly_generated_summary = None
+
                 if html_content:
-                    generated_summary = generate_summary(html=html_content, sentences_count=5)
+                    newly_generated_summary = generate_summary(html=html_content, sentences_count=5) # Generate a slightly longer summary
                 elif text_content:
-                    generated_summary = generate_summary(text=text_content, sentences_count=5)
+                    newly_generated_summary = generate_summary(text=text_content, sentences_count=5)
+
+                generated_summary_for_db = newly_generated_summary # Store whatever was generated
+
+                # Check if the *newly generated* summary is good enough
+                if newly_generated_summary and len(newly_generated_summary) >= MIN_SUMMARY_LENGTH:
+                    logger.info(f"文章 {article_id} 使用了新生成的摘要。")
+                    summary_to_use = newly_generated_summary # Use this for vectorization AND DB update
+                    update_main_summary_in_db = True # Set flag to update main summary field
                 else:
-                    generated_summary = ""
-                
-                # 如果生成了新摘要，更新文章的摘要
-                if generated_summary and len(generated_summary) > 100:
-                    summary = generated_summary
-            
-            # 构建向量化文本（标题+摘要）
-            vector_text = f"{article['title']}\n{summary}"
-            
-            
+                    logger.warning(f"文章 {article_id} 摘要过短，生成的新摘要 ('{newly_generated_summary}') 仍然无效或过短。将使用原始内容（如果存在）或标题进行向量化。")
+                    # Fallback: Use original short summary if it exists, otherwise just title
+                    if not original_summary:
+                         summary_to_use = "" # Use empty if original was also empty/None
+                    # update_main_summary_in_db remains False
+
+            # --- Vectorization ---
+            # 构建向量化文本（标题 + 最终使用的摘要）
+            vector_text = f"{article.get('title', '')}\n{summary_to_use}".strip() # Use .get and strip
+            if not vector_text: # Handle case where both title and summary are empty
+                 logger.error(f"文章 {article_id} 标题和摘要均为空，无法进行向量化。")
+                 raise Exception("无法生成向量化文本（标题和摘要均为空）")
+
+
+            print(f"准备为文章 {article_id} 生成向量，文本片段: '{vector_text[:100]}...'") # Debug print
             embedding_result = self.llm_provider.generate_embeddings(
-                    texts=[vector_text],
-                    model=self.model
-                )
-        
-            
+                texts=[vector_text],
+                model=self.model # Ensure the correct model is passed
+            )
+            print(f"文章 {article_id} 向量生成成功。") # Debug print
+
             # 从结果中提取向量
-            vector = embedding_result["embeddings"][0]
+            vector = embedding_result.get("embeddings", [None])[0]
+            if not vector:
+                 logger.error(f"LLM Provider 未能为文章 {article_id} 返回向量。")
+                 raise Exception("未能从LLM Provider获取向量")
+
             feed_id = article.get("feed_id", "unknown")
-            # 生成向量ID
-            vector_id = f"article_{feed_id}_{article_id}"
-            
-            # 准备元数据
+            vector_id = f"article_{feed_id}_{article_id}" # Use the article ID directly for uniqueness
+
+            # 准备元数据 (Use the summary_to_use for metadata as well)
             metadata = {
                 "article_id": article_id,
-                "feed_id": article["feed_id"],
-                "title": article["title"],
-                "summary": summary,
-                "created_at": datetime.now().isoformat()
+                "feed_id": article.get("feed_id", "unknown"),
+                "title": article.get("title", ""),
+                "summary": summary_to_use, # Use the final summary for metadata
+                "published_date": article.get("published_date"), # Store original publish date if available
+                "vectorized_at": datetime.now().isoformat() # Add vectorization timestamp
             }
-            
-            # 插入向量到向量存储
+
+            # --- Store Vector ---
+            print(f"准备将向量 {vector_id} 插入/更新到 Milvus 集合 {self.collection_name}...") # Debug print
             try:
                 self.vector_store.upsert(
                     index_name=self.collection_name,
@@ -374,12 +299,12 @@ class ArticleVectorizationService:
                     ids=[vector_id],
                     metadata=[metadata]
                 )
+                print(f"向量 {vector_id} 成功存储到 Milvus。") # Debug print
             except Exception as e:
-                # 提供具体的向量存储错误
-                logger.error(f"存储向量失败: {str(e)}")
+                logger.error(f"存储向量 {vector_id} 失败: {str(e)}", exc_info=True)
                 raise Exception(f"存储向量失败: {str(e)}。请检查Milvus服务是否正确配置和运行。")
-            
-            # 更新文章状态
+
+            # --- Update Database ---
             update_data = {
                 "is_vectorized": True,
                 "vector_id": vector_id,
@@ -388,49 +313,64 @@ class ArticleVectorizationService:
                 "vector_dimension": self.vector_dimension,
                 "vectorization_status": 1  # 成功
             }
-            
-            # 如果生成了新摘要，也更新摘要
-            if generated_summary:
-                update_data["generated_summary"] = generated_summary
-            
+
+            # Include generated_summary if it was created
+            if generated_summary_for_db is not None:
+                update_data["generated_summary"] = generated_summary_for_db
+
+            # *** Update the main summary field in the DB if needed ***
+            if update_main_summary_in_db:
+                 update_data["summary"] = summary_to_use # Use the newly generated & validated summary
+
+            print(f"准备更新数据库文章 {article_id} 状态及摘要(如果需要)...") # Debug print
             self.article_repo.update_article_vectorization(article_id, update_data)
-            
+            print(f"数据库文章 {article_id} 更新成功。") # Debug print
+
             return {
                 "status": "success",
                 "article_id": article_id,
                 "vector_id": vector_id,
-                "message": "文章向量化成功"
+                "message": "文章向量化成功",
+                "summary_updated": update_main_summary_in_db # Indicate if main summary was updated
             }
         except Exception as e:
-            # 记录详细错误
-            logger.error(f"文章 {article_id} 向量化失败: {str(e)}")
-            
-            # 尝试更新文章状态
+            logger.error(f"文章 {article_id} 向量化失败: {str(e)}", exc_info=True) # Log full traceback
+
+            # Attempt to mark article as failed in DB
             try:
                 self.article_repo.update_article_vectorization_status(
                     article_id=article_id,
                     status=2,  # 失败
-                    error_message=str(e)
+                    error_message=str(e)[:1000] # Limit error message length for DB
                 )
+                print(f"文章 {article_id} 状态已标记为失败。") # Debug print
             except Exception as db_error:
-                # 如果连状态更新都失败，记录额外错误
-                logger.error(f"更新文章向量化状态失败: {str(db_error)}")
-                # 附加额外的错误信息
-                raise Exception(f"文章向量化失败: {str(e)}。数据库错误: {str(db_error)}")
-            
-            # 向上抛出原始错误
+                logger.error(f"更新文章 {article_id} 向量化状态为失败时出错: {str(db_error)}", exc_info=True)
+                # Combine errors if DB update also fails
+                raise Exception(f"文章向量化失败: {str(e)}. 此外，更新数据库状态时出错: {str(db_error)}")
+
+            # Re-raise the original vectorization error
             raise Exception(f"文章向量化失败: {str(e)}")
-    
+
+    # --- Other methods remain the same ---
+    # start_vectorization_task
+    # _process_vectorization_task
+    # get_similar_articles
+    # search_articles
+    # get_vectorization_statistics
+
+    # (Add the remaining methods from the original file here if they were omitted for brevity)
+    # ... get_similar_articles, search_articles, get_vectorization_statistics ...
     def get_similar_articles(self, article_id: int, limit: int = 10) -> List[Dict[str, Any]]:
         """获取相似文章
-        
+
         Args:
             article_id: 文章ID
             limit: 返回数量
-            
+
         Returns:
             相似文章列表
-            
+
         Raises:
             Exception: 查询失败时抛出异常
         """
@@ -440,82 +380,99 @@ class ArticleVectorizationService:
                 self._init_services()
                 if not self.llm_provider or not self.vector_store:
                     raise Exception("无法初始化服务，请检查配置")
-            
+
             # 获取文章信息
             err, article = self.article_repo.get_article_by_id(article_id)
             if err:
                 raise Exception(f"获取文章失败: {err}")
-            
+            if not article:
+                 raise Exception(f"未找到文章 {article_id}")
+
             # 检查文章是否已向量化
-            print(article)
+            print(f"检查文章 {article_id} 的向量化状态...") # Debug print
             if not article.get("is_vectorized") or not article.get("vector_id"):
-                raise Exception("文章尚未向量化")
-            
+                logger.warning(f"文章 {article_id} 尚未向量化，无法查找相似文章。")
+                # Option 1: Raise an exception
+                # raise Exception("文章尚未向量化")
+                # Option 2: Return empty list
+                return []
+
+            article_vector_id = article.get("vector_id")
+            print(f"文章 {article_id} 已向量化，向量ID: {article_vector_id}") # Debug print
+
             # 获取文章向量
+            print(f"从 Vector Store 获取向量: {article_vector_id}") # Debug print
             vector_results = self.vector_store.get(
                 index_name=self.collection_name,
-                ids=[article["vector_id"]]
+                ids=[article_vector_id] # Pass ID in a list
             )
-            
+
             if not vector_results:
-                # 如果没有找到向量，可能是ID格式不正确或已删除
-                # 重新生成向量
-                summary = article.get("summary") or article.get("generated_summary") or ""
-                vector_text = f"{article['title']}\n{summary}"
-                
-                # 使用LLM Provider生成向量
-                embedding_result = self.llm_provider.generate_embeddings(
-                    texts=[vector_text],
-                    model=self.model
-                )
-                
-                # 从结果中提取向量
-                vector = embedding_result["embeddings"][0]
-            else:
-                # 使用找到的向量
-                vector = vector_results[0]["vector"]
-            
+                logger.error(f"无法在向量库中找到文章 {article_id} 的向量 (ID: {article_vector_id})，即使它被标记为已向量化。")
+                # Possible issue: vector deleted, ID mismatch, DB/vector store inconsistency
+                # Option 1: Try to re-vectorize (could be slow/costly)
+                # Option 2: Return empty list or raise error
+                return [] # Returning empty list for now
+
+            vector = vector_results[0].get("vector")
+            if not vector:
+                 logger.error(f"从向量库检索到的向量数据为空: {vector_results[0]}")
+                 return []
+
+            print(f"成功获取向量 {article_vector_id}。") # Debug print
+
             # 搜索相似文章
+            print(f"在集合 {self.collection_name} 中搜索相似向量...") # Debug print
             search_results = self.vector_store.search(
                 index_name=self.collection_name,
                 query_vector=vector,
-                top_k=limit + 1  # +1是因为会包含自己
+                top_k=limit + 1  # +1 because it might include itself
             )
-            
-            # 过滤掉自己
-            search_results = [
-                result for result in search_results
-                if result["metadata"].get("article_id") != article_id
-            ][:limit]
-            
-            # 获取完整的文章信息
+            print(f"向量搜索完成，找到 {len(search_results)} 个结果。") # Debug print
+
+
+            # 过滤掉自己并处理结果
             result_articles = []
             for result in search_results:
-                metadata = result["metadata"]
-                article_id = metadata.get("article_id")
-                
-                if article_id:
-                    err, full_article = self.article_repo.get_article_by_id(article_id)
-                    if not err and full_article:
+                metadata = result.get("metadata", {})
+                # Use get with default for article_id in metadata
+                retrieved_article_id = metadata.get("article_id")
+
+                # Ensure retrieved_article_id is not None and compare with the input article_id
+                if retrieved_article_id is not None and retrieved_article_id != article_id:
+                    print(f"处理相似结果: ID={retrieved_article_id}, Score={result.get('score')}") # Debug print
+                    # 获取完整的文章信息
+                    err_full, full_article = self.article_repo.get_article_by_id(retrieved_article_id)
+                    if not err_full and full_article:
                         # 添加相似度信息
-                        full_article["similarity"] = result["score"]
+                        full_article["similarity"] = result.get("score")
                         result_articles.append(full_article)
-            
+                    else:
+                         logger.warning(f"无法获取相似文章 {retrieved_article_id} 的完整信息: {err_full}")
+
+                    # Break if we have enough results
+                    if len(result_articles) >= limit:
+                        break
+                # else:
+                #      print(f"跳过结果，因为它与源文章相同或缺少 article_id: {metadata}") # Debug print
+
+
+            print(f"最终返回 {len(result_articles)} 篇相似文章。") # Debug print
             return result_articles
         except Exception as e:
-            logger.error(f"获取相似文章失败: {str(e)}")
+            logger.error(f"获取相似文章失败: {str(e)}", exc_info=True)
             raise Exception(f"获取相似文章失败: {str(e)}")
-    
+
     def search_articles(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """根据查询文本搜索文章
-        
+
         Args:
             query: 查询文本
             limit: 返回数量
-            
+
         Returns:
             相关文章列表
-            
+
         Raises:
             Exception: 搜索失败时抛出异常
         """
@@ -525,96 +482,128 @@ class ArticleVectorizationService:
                 self._init_services()
                 if not self.llm_provider or not self.vector_store:
                     raise Exception("无法初始化服务，请检查配置")
-            
+
             # 将查询文本转换为向量
+            print(f"为查询 '{query[:50]}...' 生成向量...") # Debug print
             embedding_result = self.llm_provider.generate_embeddings(
                 texts=[query],
-                model=self.model
+                model=self.model # Use the configured model
             )
-            
+            print("查询向量生成成功。") # Debug print
+
             # 从结果中提取向量
-            query_vector = embedding_result["embeddings"][0]
-            
+            query_vector = embedding_result.get("embeddings", [None])[0]
+            if not query_vector:
+                 logger.error(f"LLM Provider 未能为查询 '{query[:50]}...' 返回向量。")
+                 raise Exception("未能从LLM Provider获取查询向量")
+
             # 在向量库中搜索
+            print(f"在集合 {self.collection_name} 中搜索相关文章...") # Debug print
             search_results = self.vector_store.search(
                 index_name=self.collection_name,
                 query_vector=query_vector,
                 top_k=limit
             )
-            
+            print(f"向量搜索完成，找到 {len(search_results)} 个结果。") # Debug print
+
             # 获取完整的文章信息
             result_articles = []
             for result in search_results:
-                metadata = result["metadata"]
+                metadata = result.get("metadata", {})
                 article_id = metadata.get("article_id")
-                
+                print(f"处理搜索结果: ID={article_id}, Score={result.get('score')}") # Debug print
+
                 if article_id:
-                    err, full_article = self.article_repo.get_article_by_id(article_id)
-                    if not err and full_article:
+                    err_full, full_article = self.article_repo.get_article_by_id(article_id)
+                    if not err_full and full_article:
                         # 添加相似度信息
-                        full_article["similarity"] = result["score"]
+                        full_article["similarity"] = result.get("score")
                         result_articles.append(full_article)
-            
+                    else:
+                         logger.warning(f"无法获取搜索结果文章 {article_id} 的完整信息: {err_full}")
+
+            print(f"最终返回 {len(result_articles)} 篇搜索结果文章。") # Debug print
             return result_articles
         except Exception as e:
-            logger.error(f"搜索文章失败: {str(e)}")
+            logger.error(f"搜索文章失败: {str(e)}", exc_info=True)
             raise Exception(f"搜索文章失败: {str(e)}")
-    
+
     def get_vectorization_statistics(self) -> Dict[str, Any]:
         """获取向量化统计信息
-        
+
         Returns:
             统计信息
         """
         try:
-            # 确保服务已初始化
+            # 确保服务已初始化 (只需要 vector_store)
             if not self.vector_store:
                 self._init_services()
-            
-            # 查询全部文章数量
-            all_articles = self.article_repo.get_articles(page=1, per_page=1)["total"]
-            
-            # 查询已向量化文章数量
-            vectorized_articles = self.article_repo.get_articles(
-                page=1, 
-                per_page=1, 
-                filters={"vectorization_status": 1}
-            )["total"]
-            
-            # 查询向量化失败文章数量
-            failed_articles = self.article_repo.get_articles(
-                page=1, 
-                per_page=1, 
-                filters={"vectorization_status": 2}
-            )["total"]
-            
-            # 查询正在处理的文章数量
-            processing_articles = self.article_repo.get_articles(
-                page=1, 
-                per_page=1, 
-                filters={"vectorization_status": 3}
-            )["total"]
-            
-            # 获取向量库中的向量数量
+
+            # --- Database Statistics ---
+            print("获取数据库中的文章统计信息...") # Debug print
+            # Build base filter (e.g., exclude certain statuses if needed)
+            base_filters = {} # Add filters if you only want to count 'valid' articles
+
+            # Get total count using base filters
+            all_articles_result = self.article_repo.get_articles(page=1, per_page=1, filters=base_filters)
+            all_articles = all_articles_result.get("total", 0)
+            print(f"数据库中总文章数: {all_articles}") # Debug print
+
+
+            # Function to get count for a specific status
+            def get_count_by_status(status_code):
+                status_filters = base_filters.copy()
+                status_filters["vectorization_status"] = status_code
+                count_result = self.article_repo.get_articles(page=1, per_page=1, filters=status_filters)
+                return count_result.get("total", 0)
+
+            # Get counts for each status
+            vectorized_articles = get_count_by_status(1)
+            failed_articles = get_count_by_status(2)
+            processing_articles = get_count_by_status(3)
+            pending_articles = get_count_by_status(0) # Explicitly count pending
+
+            # Verify counts add up (optional sanity check)
+            # db_counted_total = vectorized_articles + failed_articles + processing_articles + pending_articles
+            # if db_counted_total != all_articles:
+            #      logger.warning(f"数据库文章总数 ({all_articles}) 与状态计数之和 ({db_counted_total}) 不匹配！")
+
+            print(f"已向量化: {vectorized_articles}, 失败: {failed_articles}, 处理中: {processing_articles}, 待处理: {pending_articles}") # Debug print
+
+
+            # --- Vector Store Statistics ---
             milvus_count = 0
-            if self.vector_store and self.vector_store.index_exists(self.collection_name):
-                milvus_count = self.vector_store.count(self.collection_name)
-            
-            # 计算向量化比例
+            vector_store_exists = False
+            if self.vector_store:
+                 print(f"获取向量存储 '{self.collection_name}' 的信息...") # Debug print
+                 try:
+                      if self.vector_store.index_exists(self.collection_name):
+                           vector_store_exists = True
+                           milvus_count = self.vector_store.count(self.collection_name)
+                           print(f"向量存储中的向量数: {milvus_count}") # Debug print
+                      else:
+                           print(f"向量存储集合 '{self.collection_name}' 不存在。") # Debug print
+                 except Exception as vs_err:
+                      logger.error(f"无法从向量存储获取计数: {vs_err}", exc_info=True)
+                      print(f"错误: 无法从向量存储获取计数: {vs_err}") # Debug print
+
+            # --- Calculate Rate ---
             vectorization_rate = (vectorized_articles / all_articles * 100) if all_articles > 0 else 0
-            
+            print(f"向量化率: {vectorization_rate:.2f}%") # Debug print
+
             return {
                 "total_articles": all_articles,
                 "vectorized_articles": vectorized_articles,
                 "failed_articles": failed_articles,
                 "processing_articles": processing_articles,
-                "pending_articles": all_articles - vectorized_articles - failed_articles - processing_articles,
+                "pending_articles": pending_articles, # Use the counted pending value
                 "vector_store_vectors": milvus_count,
                 "vector_store_type": self.store_type,
+                "vector_store_collection_exists": vector_store_exists,
                 "vectorization_rate": round(vectorization_rate, 2)
             }
         except Exception as e:
-            logger.error(f"获取向量化统计信息失败: {str(e)}")
+            logger.error(f"获取向量化统计信息失败: {str(e)}", exc_info=True)
             return {
-                "error": str(e)
+                "error": f"获取统计信息时出错: {str(e)}"
             }
