@@ -169,8 +169,8 @@ def process_article_vectorization():
         logger.info(f"Worker {worker_id} 开始处理文章 {article_id} 向量化")
         
         # 创建向量化服务
-        model = data.get("model", None)
-        provider_type = data.get("provider_type", "volcano")
+        model = data.get("model")
+        provider_type = data.get("provider_type")
         vectorization_service = ArticleVectorizationService(
             article_repo=article_repo,
             content_repo=content_repo,

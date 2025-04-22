@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class ArticleVectorizationService:
     """RSS文章向量化服务"""
 
-    def __init__(self, article_repo, content_repo, task_repo, provider_type="volcano", model="doubao-embedding-large-text-240915", store_type="milvus"):
+    def __init__(self, article_repo, content_repo, task_repo, provider_type="openai", model="text-embedding-3-large", store_type="milvus"):
         """初始化向量化服务
 
         Args:
