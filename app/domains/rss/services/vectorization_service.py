@@ -40,10 +40,10 @@ class ArticleVectorizationService:
 
         # 设置向量维度（根据模型确定）
         if "volcano" in self.provider_type:
-            self.vector_dimension = 4096
+            self.vector_dimension = 3072
         else:
             # Default or adjust based on other providers like OpenAI
-            self.vector_dimension = 1536 # Example for text-embedding-ada-002
+            self.vector_dimension = 3072 # Example for text-embedding-ada-002
 
         # 初始化LLM Provider和向量存储
         self._init_services()
