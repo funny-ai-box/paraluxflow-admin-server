@@ -48,7 +48,7 @@ class LLMProviderFactory:
             if provider_name:
                 # 查找指定的活跃提供商
                 target_provider = next(
-                    (p for p in providers if p["provider_type"].lower() == provider_name.lower() and p.get("is_active")),
+                    (p for p in providers if p["provider_type"].lower() == provider_name.lower() ),
                     None
                 )
                 if not target_provider:
