@@ -174,8 +174,8 @@ class HotTopicAggregationService:
 
         # 2. 初始化LLM提供商 (现在传递 provider_type 和 model_id)
         if not self.llm_provider:
-            # Pass both provider_type and model_id to the initializer
-            success, error_message = self._init_llm_provider(provider_type="volcano", model_id="doubao-vision-pro-32k")
+ 
+            success, error_message = self._init_llm_provider()
             if not success:
                 return {
                     "status": "llm_error",

@@ -7,6 +7,7 @@ from app.infrastructure.llm_providers.base import LLMProviderInterface
 from app.infrastructure.llm_providers.openai_provider import OpenLLMProvider
 from app.infrastructure.llm_providers.anthropic_provider import AnthropicProvider
 from app.infrastructure.llm_providers.volcano_provider import VolcanoProvider
+from app.infrastructure.llm_providers.gemini_provider import GeminiProvider
 from app.core.exceptions import APIException
 from app.core.status_codes import EXTERNAL_API_ERROR, PROVIDER_NOT_FOUND
 from app.infrastructure.database.session import get_db_session
@@ -21,7 +22,8 @@ class LLMProviderFactory:
     PROVIDERS = {
         "openai": OpenLLMProvider,
         "anthropic": AnthropicProvider,
-        "volcano": VolcanoProvider
+        "volcano": VolcanoProvider,
+        "gemini": GeminiProvider
     }
 
     @classmethod

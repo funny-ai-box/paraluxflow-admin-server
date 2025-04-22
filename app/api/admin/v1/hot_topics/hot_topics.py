@@ -11,7 +11,7 @@ from app.infrastructure.database.repositories.rss_article_repository import RssF
 from app.infrastructure.llm_providers.factory import LLMProviderFactory
 from flask import Blueprint, request, g
 
-from app.api.middleware.auth import auth_required, admin_required
+from app.api.middleware.auth import auth_required
 from app.core.responses import success_response, error_response
 from app.core.status_codes import EXTERNAL_API_ERROR, PARAMETER_ERROR
 from app.infrastructure.database.session import get_db_session
@@ -383,7 +383,7 @@ def get_stats():
         logger.error(f"获取热点话题统计信息失败: {str(e)}")
         return error_response(PARAMETER_ERROR, f"获取热点话题统计信息失败: {str(e)}")
 @hot_topics_bp.route("/aggregate", methods=["POST"])
-@admin_required # 需要管理员权限才能触发
+@auth_required
 def trigger_hot_topic_aggregation():
     """
     手动触发指定日期的热点话题聚合任务
@@ -407,7 +407,7 @@ def trigger_hot_topic_aggregation():
 
         topic_date_str = data.get("topic_date")
         model_id = data.get("model_id")  # 可选: 覆盖默认LLM模型
-        provider_type = data.get("provider_type","volcano")  # 可选: 指定提供商类型
+        provider_type = data.get("provider_type")  # 可选: 指定提供商类型
 
         if not topic_date_str:
             return error_response(PARAMETER_ERROR, "缺少 topic_date 参数 (格式: YYYY-MM-DD)")
