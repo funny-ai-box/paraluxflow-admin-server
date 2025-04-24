@@ -3,7 +3,7 @@
 import logging
 import socket
 import uuid
-from app.infrastructure.database.repositories.rss_feed_repository import RssFeedRepository
+from app.infrastructure.database.repositories.rss.rss_feed_repository import RssFeedRepository
 from flask import Blueprint, request, current_app
 from app.api.middleware.app_key_auth import app_key_required
 from app.core.responses import success_response, error_response
@@ -11,10 +11,10 @@ from app.core.status_codes import PARAMETER_ERROR
 from app.infrastructure.database.session import get_db_session
 
 # 仓库导入
-from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
-from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
-from app.infrastructure.database.repositories.rss_crawler_repository import RssCrawlerRepository
-from app.infrastructure.database.repositories.rss_script_repository import RssFeedCrawlScriptRepository
+from app.infrastructure.database.repositories.rss.rss_article_repository import RssFeedArticleRepository
+from app.infrastructure.database.repositories.rss.rss_article_content_repository import RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.rss.rss_crawler_repository import RssCrawlerRepository
+from app.infrastructure.database.repositories.rss.rss_script_repository import RssFeedCrawlScriptRepository
 
 # 服务导入
 from app.domains.rss.services.crawler_service import CrawlerService

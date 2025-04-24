@@ -11,10 +11,10 @@ from app.extensions import db  # 导入 SQLAlchemy 实例
 import uuid
 
 # 仓库导入
-from app.infrastructure.database.repositories.rss_feed_repository import RssFeedRepository
-from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
-from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
-from app.infrastructure.database.repositories.rss_sync_log_repository import RssSyncLogRepository
+from app.infrastructure.database.repositories.rss.rss_feed_repository import RssFeedRepository
+from app.infrastructure.database.repositories.rss.rss_article_repository import RssFeedArticleRepository
+from app.infrastructure.database.repositories.rss.rss_article_content_repository import RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.rss.rss_sync_log_repository import RssSyncLogRepository
 
 # 服务导入
 from app.domains.rss.services.article_service import ArticleService

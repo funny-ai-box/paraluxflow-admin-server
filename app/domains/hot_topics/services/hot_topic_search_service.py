@@ -5,7 +5,7 @@ from typing import Dict, List, Any, Optional
 from datetime import date, datetime, timedelta
 
 from app.infrastructure.database.repositories.hot_topic_repository import UnifiedHotTopicRepository, HotTopicRepository
-from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
+from app.infrastructure.database.repositories.rss.rss_article_repository import RssFeedArticleRepository
 from app.domains.rss.services.vectorization_service import ArticleVectorizationService
 from app.core.exceptions import APIException
 

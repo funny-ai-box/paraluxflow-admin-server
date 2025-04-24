@@ -4,11 +4,11 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
-from sqlalchemy import and_, or_, desc
+from sqlalchemy import and_, func, or_, desc
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.infrastructure.database.models.user import User, UserSubscription, UserReadingHistory, UserFeedGroup
+from app.infrastructure.database.models.user import User, UserSubscription, UserReadingHistory
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +172,27 @@ class UserSubscriptionRepository:
             db_session: 数据库会话
         """
         self.db = db_session
+
+    def get_subscription(self, user_id: str, feed_id: str) -> Optional[UserSubscription]:
+        """获取订阅
+        
+        Args:
+            user_id: 用户ID
+            feed_id: Feed ID
+            
+        Returns:
+            订阅对象或None
+        """
+        try:
+            return self.db.query(UserSubscription).filter(
+                UserSubscription.user_id == user_id,
+                UserSubscription.feed_id == feed_id
+            ).first()
+        except SQLAlchemyError as e:
+            logger.error(f"获取订阅失败, user_id={user_id}, feed_id={feed_id}: {str(e)}")
+            return None
     
-    def get_user_subscriptions(self, user_id: str, group_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    def get_user_subscriptions(self, user_id: str) -> List[Dict[str, Any]]:
         """获取用户的所有订阅
         
         Args:
@@ -186,8 +205,7 @@ class UserSubscriptionRepository:
         try:
             query = self.db.query(UserSubscription).filter(UserSubscription.user_id == user_id)
             
-            if group_id is not None:
-                query = query.filter(UserSubscription.group_id == group_id)
+        
             
             subscriptions = query.all()
             return [self.subscription_to_dict(sub) for sub in subscriptions]
@@ -334,6 +352,71 @@ class UserReadingHistoryRepository:
         """
         self.db = db_session
     
+    def get_reading(self, user_id: str, article_id: int) -> Optional[UserReadingHistory]:
+        """获取用户阅读记录
+        
+        Args:
+            user_id: 用户ID
+            article_id: 文章ID
+            
+        Returns:
+            阅读记录对象或None
+        """
+        try:
+            return self.db.query(UserReadingHistory).filter(
+                UserReadingHistory.user_id == user_id,
+                UserReadingHistory.article_id == article_id
+            ).first()
+        except SQLAlchemyError as e:
+            logger.error(f"获取阅读记录失败, user_id={user_id}, article_id={article_id}: {str(e)}")
+            return None
+        
+    def update_reading(self, user_id: str, article_id: int, update_data: Dict[str, Any]) -> Optional[UserReadingHistory]:
+        """更新用户阅读记录
+        
+        Args:
+            user_id: 用户ID
+            article_id: 文章ID
+            update_data: 更新数据
+            
+        Returns:
+            更新后的阅读记录对象或None
+        """
+        try:
+            reading = self.db.query(UserReadingHistory).filter(
+                UserReadingHistory.user_id == user_id,
+                UserReadingHistory.article_id == article_id
+            ).first()
+            
+            if not reading:
+                return None
+            
+            for key, value in update_data.items():
+                if hasattr(reading, key):
+                    setattr(reading, key, value)
+            
+            self.db.commit()
+            self.db.refresh(reading)
+            return reading
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error(f"更新阅读记录失败, user_id={user_id}, article_id={article_id}: {str(e)}")
+            return None
+        
+    def get_unread_count(self, user_id: str, feed_ids: Optional[List[str]] = None) -> int:
+        """获取未读数量"""
+        try:
+            query = self.db.query(func.count(UserReadingHistory.id)).filter(
+                UserReadingHistory.user_id == user_id,
+                UserReadingHistory.is_read == False
+            )
+            if feed_ids:
+                query = query.filter(UserReadingHistory.feed_id.in_(feed_ids))
+            return query.scalar()
+        except SQLAlchemyError as e:
+            logger.error(f"获取未读数量失败, user_id={user_id}: {str(e)}")
+            return 0
+        
     def get_reading_history(self, user_id: str, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
         """获取用户阅读历史
         
@@ -356,6 +439,30 @@ class UserReadingHistoryRepository:
         except SQLAlchemyError as e:
             logger.error(f"获取阅读历史失败, user_id={user_id}: {str(e)}")
             return []
+        
+    def get_article_ids_by_status(self, filter_criteria: Dict[str, Any]) -> List[int]: # 注意参数名和类型可能需要调整
+        """根据指定状态获取文章ID列表"""
+        try:
+            query = self.db.query(UserReadingHistory.article_id)
+
+            # 应用过滤条件
+            if "user_id" in filter_criteria:
+                 query = query.filter(UserReadingHistory.user_id == filter_criteria["user_id"])
+
+            # *** 修改这里：根据传入的键值对进行过滤 ***
+            if "is_favorite" in filter_criteria:
+                 query = query.filter(UserReadingHistory.is_favorite == filter_criteria["is_favorite"])
+            if "is_read" in filter_criteria:
+                 query = query.filter(UserReadingHistory.is_read == filter_criteria["is_read"])
+            # 可以根据需要添加其他过滤条件
+
+            article_ids = query.all()
+            return [article_id[0] for article_id in article_ids]
+        except SQLAlchemyError as e:
+            logger.error(f"根据状态获取文章ID失败: {str(e)}")
+            return []
+        
+
     
     def add_reading_record(self, reading_data: Dict[str, Any]) -> Optional[UserReadingHistory]:
         """添加阅读记录
@@ -506,154 +613,4 @@ class UserReadingHistoryRepository:
             "read_time": history.read_time,
             "created_at": history.created_at.isoformat(),
             "updated_at": history.updated_at.isoformat()
-        }
-
-class UserFeedGroupRepository:
-    """用户Feed分组仓库"""
-
-    def __init__(self, db_session: Session):
-        """初始化仓库
-        
-        Args:
-            db_session: 数据库会话
-        """
-        self.db = db_session
-    
-    def get_user_groups(self, user_id: str) -> List[Dict[str, Any]]:
-        """获取用户的所有分组
-        
-        Args:
-            user_id: 用户ID
-            
-        Returns:
-            分组列表
-        """
-        try:
-            groups = self.db.query(UserFeedGroup).filter(
-                UserFeedGroup.user_id == user_id
-            ).order_by(
-                UserFeedGroup.sort_order
-            ).all()
-            
-            return [self.group_to_dict(group) for group in groups]
-        except SQLAlchemyError as e:
-            logger.error(f"获取用户分组失败, user_id={user_id}: {str(e)}")
-            return []
-    
-    def add_group(self, group_data: Dict[str, Any]) -> Optional[UserFeedGroup]:
-        """添加分组
-        
-        Args:
-            group_data: 分组数据
-            
-        Returns:
-            添加的分组对象或None
-        """
-        try:
-            # 获取用户的最大排序值
-            user_id = group_data.get("user_id")
-            max_order = self.db.query(UserFeedGroup).filter(
-                UserFeedGroup.user_id == user_id
-            ).order_by(
-                desc(UserFeedGroup.sort_order)
-            ).first()
-            
-            if max_order:
-                group_data["sort_order"] = max_order.sort_order + 1
-            else:
-                group_data["sort_order"] = 0
-            
-            group = UserFeedGroup(**group_data)
-            self.db.add(group)
-            self.db.commit()
-            self.db.refresh(group)
-            return group
-        except SQLAlchemyError as e:
-            self.db.rollback()
-            logger.error(f"添加分组失败: {str(e)}")
-            return None
-    
-    def update_group(self, group_id: int, user_id: str, update_data: Dict[str, Any]) -> Optional[UserFeedGroup]:
-        """更新分组
-        
-        Args:
-            group_id: 分组ID
-            user_id: 用户ID
-            update_data: 更新数据
-            
-        Returns:
-            更新后的分组对象或None
-        """
-        try:
-            group = self.db.query(UserFeedGroup).filter(
-                UserFeedGroup.id == group_id,
-                UserFeedGroup.user_id == user_id
-            ).first()
-            
-            if not group:
-                return None
-            
-            for key, value in update_data.items():
-                if hasattr(group, key):
-                    setattr(group, key, value)
-            
-            self.db.commit()
-            self.db.refresh(group)
-            return group
-        except SQLAlchemyError as e:
-            self.db.rollback()
-            logger.error(f"更新分组失败, group_id={group_id}: {str(e)}")
-            return None
-    
-    def delete_group(self, group_id: int, user_id: str) -> bool:
-        """删除分组
-        
-        Args:
-            group_id: 分组ID
-            user_id: 用户ID
-            
-        Returns:
-            是否成功
-        """
-        try:
-            group = self.db.query(UserFeedGroup).filter(
-                UserFeedGroup.id == group_id,
-                UserFeedGroup.user_id == user_id
-            ).first()
-            
-            if not group:
-                return False
-            
-            # 将该分组下的订阅移至无分组
-            self.db.query(UserSubscription).filter(
-                UserSubscription.group_id == group_id,
-                UserSubscription.user_id == user_id
-            ).update({"group_id": None})
-            
-            # 删除分组
-            self.db.delete(group)
-            self.db.commit()
-            return True
-        except SQLAlchemyError as e:
-            self.db.rollback()
-            logger.error(f"删除分组失败, group_id={group_id}, user_id={user_id}: {str(e)}")
-            return False
-    
-    def group_to_dict(self, group: UserFeedGroup) -> Dict[str, Any]:
-        """将分组对象转为字典
-        
-        Args:
-            group: 分组对象
-            
-        Returns:
-            分组字典
-        """
-        return {
-            "id": group.id,
-            "user_id": group.user_id,
-            "name": group.name,
-            "sort_order": group.sort_order,
-            "feed_count": group.feed_count,
-            "created_at": group.created_at.isoformat(),
-            "updated_at": group.updated_at.isoformat()
         }

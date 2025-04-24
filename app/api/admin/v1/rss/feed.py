@@ -9,8 +9,8 @@ from app.api.middleware.auth import auth_required
 from app.core.responses import success_response
 from app.core.exceptions import ValidationException
 from app.infrastructure.database.session import get_db_session
-from app.infrastructure.database.repositories.rss_feed_repository import RssFeedRepository
-from app.infrastructure.database.repositories.rss_category_repository import RssFeedCategoryRepository
+from app.infrastructure.database.repositories.rss.rss_feed_repository import RssFeedRepository
+from app.infrastructure.database.repositories.rss.rss_category_repository import RssFeedCategoryRepository
 from app.domains.rss.services.feed_service import FeedService
 
 logger = logging.getLogger(__name__)

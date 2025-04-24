@@ -11,11 +11,11 @@ from flask import Blueprint, request, g, current_app
 
 from app.core.responses import error_response, success_response
 from app.infrastructure.database.session import get_db_session
-from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
-from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
-from app.infrastructure.database.repositories.rss_crawler_repository import RssCrawlerRepository
-from app.infrastructure.database.repositories.rss_script_repository import RssFeedCrawlScriptRepository
-from app.infrastructure.database.repositories.rss_feed_repository import RssFeedRepository
+from app.infrastructure.database.repositories.rss.rss_article_repository import RssFeedArticleRepository
+from app.infrastructure.database.repositories.rss.rss_article_content_repository import RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.rss.rss_crawler_repository import RssCrawlerRepository
+from app.infrastructure.database.repositories.rss.rss_script_repository import RssFeedCrawlScriptRepository
+from app.infrastructure.database.repositories.rss.rss_feed_repository import RssFeedRepository
 from app.domains.rss.services.crawler_service import CrawlerService
 
 logger = logging.getLogger(__name__)

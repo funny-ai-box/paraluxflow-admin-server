@@ -10,9 +10,9 @@ from app.core.status_codes import PARAMETER_ERROR, SUCCESS
 from app.infrastructure.database.session import get_db_session
 
 # 仓库导入
-from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
-from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
-from app.infrastructure.database.repositories.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
+from app.infrastructure.database.repositories.rss.rss_article_repository import RssFeedArticleRepository
+from app.infrastructure.database.repositories.rss.rss_article_content_repository import RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.rss.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
 
 # 服务导入
 from app.domains.rss.services.vectorization_service import ArticleVectorizationService

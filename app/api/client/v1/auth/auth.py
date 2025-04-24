@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 import logging
 import json
 import uuid
+from app.core.exceptions import AuthenticationException, ValidationException
+from app.domains.auth.services.client_auth_service import ClientAuthService
 from app.domains.auth.services.firebase_auth_service import FirebaseAuthService
 from flask import Blueprint, request, redirect, jsonify, current_app, g, url_for
 
@@ -18,121 +20,6 @@ from app.api.client.v1.auth import auth_bp
 
 logger = logging.getLogger(__name__)
 
-@auth_bp.route("/google/url", methods=["GET"])
-def google_auth_url():
-    """获取Google认证URL
-    
-    Returns:
-        包含认证URL的响应
-    """
-    try:
-        # 生成状态参数，用于防止CSRF
-        state = str(uuid.uuid4())
-        
-        # 创建会话和存储库
-        db_session = get_db_session()
-        user_repo = UserRepository(db_session)
-        
-        # 创建服务
-        auth_service = GoogleAuthService(user_repo)
-        
-        # 获取认证URL
-        auth_url = auth_service.get_auth_url(state)
-        
-        return success_response({
-            "auth_url": auth_url,
-            "state": state
-        })
-    except Exception as e:
-        logger.error(f"获取Google认证URL失败: {str(e)}")
-        return error_response(AUTH_FAILED, f"获取认证URL失败: {str(e)}")
-
-@auth_bp.route("/google/callback", methods=["GET"])
-def google_callback():
-    """Google认证回调
-    
-    处理Google认证回调，获取用户信息并生成JWT令牌
-    
-    Returns:
-        重定向到前端携带令牌的URL
-    """
-    try:
-        # 获取授权码和状态
-        code = request.args.get("code")
-        state = request.args.get("state")
-        error = request.args.get("error")
-        
-        # 获取前端回调URL
-        frontend_callback_url = current_app.config.get("FRONTEND_CALLBACK_URL", "app://auth-callback")
-        
-        if error:
-            logger.error(f"Google认证失败: {error}")
-            return redirect(f"{frontend_callback_url}?error={error}")
-        
-        if not code:
-            logger.error("缺少授权码")
-            return redirect(f"{frontend_callback_url}?error=missing_code")
-        
-        # 创建会话和存储库
-        db_session = get_db_session()
-        user_repo = UserRepository(db_session)
-        
-        # 创建服务
-        auth_service = GoogleAuthService(user_repo)
-        
-        # 认证用户
-        auth_result, error = auth_service.authenticate(code)
-        
-        if error:
-            logger.error(f"认证失败: {error}")
-            return redirect(f"{frontend_callback_url}?error={error}")
-        
-        # 重定向到前端，携带令牌
-        token = auth_result.get("token")
-        return redirect(f"{frontend_callback_url}?token={token}&state={state}")
-    except Exception as e:
-        logger.error(f"认证回调处理失败: {str(e)}")
-        frontend_callback_url = current_app.config.get("FRONTEND_CALLBACK_URL", "app://auth-callback")
-        return redirect(f"{frontend_callback_url}?error=server_error")
-
-@auth_bp.route("/validate", methods=["GET"])
-@client_auth_required
-def validate_token():
-    """验证令牌并返回用户信息
-    
-    Returns:
-        用户信息
-    """
-    try:
-        # 从g对象获取用户ID
-        user_id = g.user_id
-        
-        # 创建会话和存储库
-        db_session = get_db_session()
-        user_repo = UserRepository(db_session)
-        
-        # 获取用户信息
-        user = user_repo.find_by_id(user_id)
-        if not user:
-            return error_response(AUTH_FAILED, "用户不存在")
-        
-        return success_response({
-            "user": user_repo.user_to_dict(user)
-        })
-    except Exception as e:
-        logger.error(f"验证令牌失败: {str(e)}")
-        return error_response(AUTH_FAILED, f"验证令牌失败: {str(e)}")
-
-@auth_bp.route("/logout", methods=["POST"])
-@client_auth_required
-def logout():
-    """用户登出
-    
-    Returns:
-        操作结果
-    """
-    # 客户端应自行处理令牌的清除
-    return success_response(None, "登出成功")
 @auth_bp.route("/login_by_token", methods=["GET"])
 def login_by_token():
     """通过Firebase ID令牌登录 - 使用JWT认证
@@ -218,3 +105,64 @@ def refresh_token():
     except Exception as e:
         logger.error(f"刷新令牌失败: {str(e)}")
         return error_response(AUTH_FAILED, f"刷新令牌失败: {str(e)}")
+    
+@auth_bp.route("/register", methods=["POST"])
+def register_with_email():
+    """邮箱密码注册"""
+    try:
+        data = request.get_json()
+        if not data:
+            raise ValidationException("请求数据不能为空")
+
+        email = data.get("email")
+        encrypted_password = data.get("password") # Expecting RSA encrypted password
+        username = data.get("username") # Optional
+
+        if not email or not encrypted_password:
+            raise ValidationException("缺少必要参数: email, password")
+
+        db_session = get_db_session()
+        user_repo = UserRepository(db_session)
+        client_auth_service = ClientAuthService(user_repo)
+
+        result = client_auth_service.register_with_email_password(
+            email, encrypted_password, username
+        )
+        return success_response(result, message=result.pop("message", "注册成功")) # Pass potential specific message
+
+    except (ValidationException, AuthenticationException) as e:
+         logger.warning(f"邮箱注册失败: {e.message} (Code: {e.code})")
+         return error_response(e.code, e.message)
+    except Exception as e:
+        logger.error(f"邮箱注册时发生意外错误: {str(e)}", exc_info=True)
+        return error_response(AUTH_FAILED, "注册过程中发生错误")
+
+@auth_bp.route("/login", methods=["POST"])
+def login_with_email():
+    """邮箱密码登录"""
+    try:
+        data = request.get_json()
+        if not data:
+            raise ValidationException("请求数据不能为空",PARAMETER_ERROR)
+
+        email = data.get("email")
+        encrypted_password = data.get("password") # Expecting RSA encrypted password
+
+        if not email or not encrypted_password:
+            raise ValidationException("缺少必要参数: email, password", AUTH_FAILED)
+
+        db_session = get_db_session()
+        user_repo = UserRepository(db_session)
+        client_auth_service = ClientAuthService(user_repo)
+
+        result = client_auth_service.login_with_email_password(
+            email, encrypted_password
+        )
+        return success_response(result, "登录成功")
+
+    except (ValidationException, AuthenticationException) as e:
+         logger.warning(f"邮箱登录失败: {e.message} (Code: {e.code})")
+         return error_response(e.code, e.message)
+    except Exception as e:
+        logger.error(f"邮箱登录时发生意外错误: {str(e)}", exc_info=True)
+        return error_response(AUTH_FAILED, "登录过程中发生错误")

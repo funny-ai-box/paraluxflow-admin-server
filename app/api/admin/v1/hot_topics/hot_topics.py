@@ -7,7 +7,7 @@ from app.core.exceptions import APIException
 from app.domains.hot_topics.services.hot_topic_aggregation_service import HotTopicAggregationService
 from app.domains.rss.services.vectorization_service import ArticleVectorizationService
 from app.infrastructure.database.repositories.llm_repository import LLMProviderRepository
-from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
+from app.infrastructure.database.repositories.rss.rss_article_repository import RssFeedArticleRepository
 from app.infrastructure.llm_providers.factory import LLMProviderFactory
 from flask import Blueprint, request, g
 
@@ -17,8 +17,8 @@ from app.core.status_codes import EXTERNAL_API_ERROR, PARAMETER_ERROR
 from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.hot_topic_repository import HotTopicTaskRepository, HotTopicRepository, HotTopicLogRepository, UnifiedHotTopicRepository
 from app.domains.hot_topics.services.hot_topic_service import HotTopicService
-from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
-from app.infrastructure.database.repositories.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
+from app.infrastructure.database.repositories.rss.rss_article_content_repository import RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.rss.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
 logger = logging.getLogger(__name__)
 
 # 创建蓝图

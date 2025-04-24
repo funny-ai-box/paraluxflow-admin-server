@@ -9,7 +9,7 @@ from app.api.middleware.app_key_auth import app_key_required
 from app.api.middleware.auth import auth_required
 from app.core.responses import success_response
 from app.infrastructure.database.session import get_db_session
-from app.infrastructure.database.repositories.rss_agent_repository import RssCrawlerAgentRepository
+from app.infrastructure.database.repositories.rss.rss_agent_repository import RssCrawlerAgentRepository
 from app.domains.rss.services.crawler_agent_service import CrawlerAgentService
 
 logger = logging.getLogger(__name__)

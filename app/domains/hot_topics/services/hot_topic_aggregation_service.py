@@ -15,9 +15,9 @@ from app.core.exceptions import APIException
 from app.core.status_codes import EXTERNAL_API_ERROR, PROVIDER_NOT_FOUND
 # --- No longer need LLMProviderRepository directly here ---
 # from app.infrastructure.database.repositories.llm_repository import LLMProviderRepository
-from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
-from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
-from app.infrastructure.database.repositories.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
+from app.infrastructure.database.repositories.rss.rss_article_repository import RssFeedArticleRepository
+from app.infrastructure.database.repositories.rss.rss_article_content_repository import RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.rss.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
 from app.domains.rss.services.vectorization_service import ArticleVectorizationService
 
 logger = logging.getLogger(__name__)

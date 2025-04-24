@@ -7,9 +7,9 @@ from flask import Blueprint, request, g
 from app.api.middleware.auth import auth_required, admin_required
 from app.core.responses import success_response, error_response
 from app.core.status_codes import PARAMETER_ERROR, SUCCESS
-from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
-from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
-from app.infrastructure.database.repositories.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
+from app.infrastructure.database.repositories.rss.rss_article_repository import RssFeedArticleRepository
+from app.infrastructure.database.repositories.rss.rss_article_content_repository import RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.rss.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
 from app.domains.rss.services.vectorization_service import ArticleVectorizationService
 from app.infrastructure.database.session import get_db_session
 

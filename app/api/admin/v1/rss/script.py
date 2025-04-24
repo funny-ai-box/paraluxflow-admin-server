@@ -6,7 +6,7 @@ from flask import Blueprint, request, g
 from app.api.middleware.auth import auth_required
 from app.core.responses import success_response
 from app.infrastructure.database.session import get_db_session
-from app.infrastructure.database.repositories.rss_script_repository import RssFeedCrawlScriptRepository
+from app.infrastructure.database.repositories.rss.rss_script_repository import RssFeedCrawlScriptRepository
 from app.domains.rss.services.script_service import ScriptService
 
 logger = logging.getLogger(__name__)

@@ -4,7 +4,7 @@ from datetime import datetime
 
 from app.core.status_codes import PARAMETER_ERROR
 from app.domains.rss.services.sync_service import SyncService
-from app.infrastructure.database.repositories.rss_sync_log_repository import RssSyncLogRepository
+from app.infrastructure.database.repositories.rss.rss_sync_log_repository import RssSyncLogRepository
 from flask import Blueprint, request, Response
 from urllib.parse import unquote
 
@@ -12,9 +12,9 @@ from app.api.middleware.auth import auth_required
 from app.core.responses import error_response, success_response
 from app.infrastructure.database.session import get_db_session
 
-from app.infrastructure.database.repositories.rss_feed_repository import RssFeedRepository
-from app.infrastructure.database.repositories.rss_article_repository import RssFeedArticleRepository
-from app.infrastructure.database.repositories.rss_article_content_repository import RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.rss.rss_feed_repository import RssFeedRepository
+from app.infrastructure.database.repositories.rss.rss_article_repository import RssFeedArticleRepository
+from app.infrastructure.database.repositories.rss.rss_article_content_repository import RssFeedArticleContentRepository
 from app.domains.rss.services.article_service import ArticleService
 
 logger = logging.getLogger(__name__)

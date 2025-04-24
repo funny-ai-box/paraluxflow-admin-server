@@ -1,175 +1,297 @@
 # app/api/client/v1/hot_topics/hot_topics.py
-"""客户端热点话题API控制器"""
+"""客户端热点话题API控制器 (GET/POST only)"""
 import logging
 from flask import Blueprint, request, g
+from datetime import datetime, date
 
 from app.api.middleware.client_auth import client_auth_required
 from app.core.responses import success_response, error_response
-from app.core.status_codes import PARAMETER_ERROR
+from app.core.status_codes import PARAMETER_ERROR, NOT_FOUND
 from app.infrastructure.database.session import get_db_session
-from app.infrastructure.database.repositories.hot_topic_repository import HotTopicTaskRepository, HotTopicRepository
-from app.domains.hot_topics.services.hot_topic_service import HotTopicService
+from app.infrastructure.database.repositories.hot_topic_repository import HotTopicRepository, UnifiedHotTopicRepository
+
+
+from app.domains.hot_topics.services.hot_topic_search_service import HotTopicSearchService
+from app.domains.rss.services.vectorization_service import ArticleVectorizationService
+from app.infrastructure.database.repositories.rss.rss_article_repository import RssFeedArticleRepository
+from app.infrastructure.database.repositories.rss.rss_article_content_repository import RssFeedArticleContentRepository
+from app.infrastructure.database.repositories.rss.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
+
+
+# Assuming client_hot_topics_bp is defined in app/api/client/v1/hot_topics/__init__.py
+client_hot_topics_bp = Blueprint("client_hot_topics", __name__) # Removed url_prefix
+
 
 logger = logging.getLogger(__name__)
 
-# 创建蓝图
-client_hot_topics_bp = Blueprint("hot_topics", __name__)
 
-@client_hot_topics_bp.route("/latest", methods=["GET"])
-def get_latest_hot_topics():
-    """获取最新热点话题
+@client_hot_topics_bp.route("/unified/latest", methods=["GET"])
+# @client_auth_required # Decide if auth is needed
+def get_latest_unified_hot_topics():
+    """获取最新聚合(Unified)的热点话题
     
     查询参数:
-    - platform: 平台筛选（weibo, zhihu, baidu, toutiao, douyin）
-    - limit: 返回条数，默认50
+    - topic_date: 可选，指定日期 (YYYY-MM-DD). 默认获取最新有数据的日期.
+    - page: 页码，默认1
+    - per_page: 每页条数，默认20
     
     Returns:
-        最新热点话题列表
+        最新聚合热点话题列表及日期
     """
     try:
-        # 获取参数
-        platform = request.args.get("platform")
-        limit = request.args.get("limit", 50, type=int)
-        
-        # 创建会话和存储库
+        topic_date_str = request.args.get("topic_date")
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 20, type=int)
+
         db_session = get_db_session()
-        task_repo = HotTopicTaskRepository(db_session)
-        topic_repo = HotTopicRepository(db_session)
+        unified_topic_repo = UnifiedHotTopicRepository(db_session)
+        hot_topic_repo = HotTopicRepository(db_session)
+
+        target_date = None
+        if topic_date_str:
+            try:
+                target_date = date.fromisoformat(topic_date_str)
+            except ValueError:
+                return error_response(PARAMETER_ERROR, "无效的日期格式，应为YYYY-MM-DD")
+        else:
+            target_date = unified_topic_repo.get_latest_unified_topic_date()
+            if not target_date:
+                 return success_response({"list": [], "total": 0, "page": page, "per_page": per_page, "pages": 0, "topic_date": None})
+
+        unified_result = unified_topic_repo.get_unified_topics_by_date(target_date, page, per_page)
+        unified_topics_list = unified_result.get("list", [])
+
+        # --- Fetch and attach simplified raw topics ---
+        all_related_ids = set()
+        for unified_topic in unified_topics_list:
+            related_ids = unified_topic.get("related_topic_ids", [])
+            if isinstance(related_ids, list):
+                all_related_ids.update(related_ids)
+
+        raw_topics_map = {}
+        if all_related_ids:
+            raw_topics_list = hot_topic_repo.get_topics_by_ids(list(all_related_ids))
+            raw_topics_map = {topic["id"]: topic for topic in raw_topics_list}
+
+        for unified_topic in unified_topics_list:
+            related_ids = unified_topic.get("related_topic_ids", [])
+            raw_topics_simplified = []
+            for raw_id in related_ids:
+                 raw_topic = raw_topics_map.get(raw_id)
+                 if raw_topic:
+                      raw_topics_simplified.append({
+                           "id": raw_topic["id"], "platform": raw_topic["platform"],
+                           "title": raw_topic["topic_title"], "url": raw_topic["topic_url"],
+                           "hot_value": raw_topic["hot_value"], "rank": raw_topic["rank"],
+                      })
+            raw_topics_simplified.sort(key=lambda x: x.get('platform', ''))
+            unified_topic["related_raw_topics"] = raw_topics_simplified
+            # unified_topic.pop("related_topic_ids", None) # Optional: Remove IDs
+        # --- End raw topics logic ---
+
+        final_response_data = {
+            "list": unified_topics_list,
+            "total": unified_result.get('total', 0),
+            "pages": unified_result.get('pages', 0),
+            "current_page": page,
+            "per_page": per_page,
+            "topic_date": target_date.isoformat()
+        }
+        return success_response(final_response_data)
         
-        # 创建服务
-        hot_topic_service = HotTopicService(task_repo, topic_repo)
-        
-        # 获取最新热点
-        topics = hot_topic_service.get_latest_hot_topics(platform, limit)
-        
-        return success_response(topics)
     except Exception as e:
-        logger.error(f"获取最新热点话题失败: {str(e)}")
-        return error_response(PARAMETER_ERROR, f"获取最新热点话题失败: {str(e)}")
+        logger.error(f"获取最新聚合热点话题失败: {str(e)}", exc_info=True)
+        return error_response(PARAMETER_ERROR, f"获取最新聚合热点话题失败: {str(e)}")
+
+@client_hot_topics_bp.route("/unified/detail", methods=["GET"])
+# @client_auth_required # Decide if auth needed
+def get_unified_topic_detail():
+    """获取聚合(Unified)热点话题详情
+    
+    查询参数:
+    - topic_id: Unified Hot Topic ID (UUID) (Required)
+    
+    Returns:
+        聚合热点详情，包含关联的原始热点信息
+    """
+    try:
+        topic_id = request.args.get("topic_id")
+        if not topic_id:
+             return error_response(PARAMETER_ERROR, "缺少 topic_id 查询参数")
+
+        db_session = get_db_session()
+        unified_topic_repo = UnifiedHotTopicRepository(db_session)
+        hot_topic_repo = HotTopicRepository(db_session)
+
+        unified_topic = unified_topic_repo.get_topic_by_id(topic_id)
+        if not unified_topic:
+             return error_response(NOT_FOUND, f"未找到ID为 {topic_id} 的聚合热点")
+
+        # --- Fetch and attach simplified raw topics ---
+        related_ids = unified_topic.get("related_topic_ids", [])
+        raw_topics_map = {}
+        if isinstance(related_ids, list) and related_ids:
+            raw_topics_list = hot_topic_repo.get_topics_by_ids(related_ids)
+            raw_topics_map = {topic["id"]: topic for topic in raw_topics_list}
+
+        raw_topics_simplified = []
+        for raw_id in related_ids:
+             raw_topic = raw_topics_map.get(raw_id)
+             if raw_topic:
+                 raw_topics_simplified.append({
+                     "id": raw_topic["id"], "platform": raw_topic["platform"],
+                     "title": raw_topic["topic_title"], "url": raw_topic["topic_url"],
+                     "hot_value": raw_topic["hot_value"], "rank": raw_topic["rank"],
+                 })
+        raw_topics_simplified.sort(key=lambda x: x.get('platform', ''))
+        unified_topic["related_raw_topics"] = raw_topics_simplified
+        # unified_topic.pop("related_topic_ids", None) # Optional: Remove IDs
+        # --- End raw topics logic ---
+        
+        return success_response(unified_topic)
+    except Exception as e:
+        logger.error(f"获取聚合热点详情失败 (ID: {topic_id}): {str(e)}", exc_info=True)
+        return error_response(PARAMETER_ERROR, f"获取聚合热点详情失败: {str(e)}")
+
+
+@client_hot_topics_bp.route("/unified/related_articles", methods=["GET"])
+# @client_auth_required # Decide if auth needed
+def get_hot_topic_related_articles():
+    """获取与聚合(Unified)热点相关的RSS文章
+    
+    查询参数:
+    - topic_id: Unified Hot Topic ID (UUID) (Required)
+    - limit: 返回的最大文章数量，默认5
+    - days_range: 查找的最大天数范围 (基于文章发布日期)，默认7
+    
+    Returns:
+        相关文章列表
+    """
+
+
+    try:
+        topic_id = request.args.get("topic_id")
+        if not topic_id:
+             return error_response(PARAMETER_ERROR, "缺少 topic_id 查询参数")
+             
+        limit = request.args.get("limit", 5, type=int)
+        days_range = request.args.get("days_range", 7, type=int)
+        
+        db_session = get_db_session()
+        
+        # Instantiate dependencies checking for None
+        unified_topic_repo = UnifiedHotTopicRepository(db_session)
+        hot_topic_repo = HotTopicRepository(db_session)
+        article_repo = RssFeedArticleRepository(db_session) if RssFeedArticleRepository else None
+        content_repo = RssFeedArticleContentRepository(db_session) if RssFeedArticleContentRepository else None
+        task_repo = RssFeedArticleVectorizationTaskRepository(db_session) if RssFeedArticleVectorizationTaskRepository else None
+
+        if not all([unified_topic_repo, hot_topic_repo, article_repo, content_repo, task_repo, 
+                    ArticleVectorizationService, HotTopicSearchService]):
+            missing = [name for name, obj in locals().items() if obj is None and name.endswith('_repo')]
+            missing.extend([svc.__name__ for svc in [ArticleVectorizationService, HotTopicSearchService] if svc is None])
+            raise ImportError(f"相关文章功能配置不完整, 缺少: {', '.join(missing)}")
+             
+        vectorization_service = ArticleVectorizationService(
+            article_repo=article_repo, content_repo=content_repo, task_repo=task_repo
+        )
+        search_service = HotTopicSearchService(
+            unified_topic_repo=unified_topic_repo, hot_topic_repo=hot_topic_repo,
+            article_repo=article_repo, vectorization_service=vectorization_service
+        )
+        
+        result = search_service.find_related_articles(
+            unified_topic_id=topic_id, limit=limit, days_range=days_range
+        )
+        
+        # Optional: Add reading status if user context available (needs auth)
+        # if g.get('user_id'):
+        #     reading_history_repo = UserReadingHistoryRepository(db_session)
+        #     result["articles"] = _add_reading_status_to_articles(g.user_id, result.get("articles",[]), reading_history_repo)
+
+        return success_response(result)
+        
+    except (ImportError, AttributeError) as ie:
+         logger.error(f"初始化相关文章服务失败: {str(ie)}", exc_info=True)
+         return error_response(PARAMETER_ERROR, f"相关文章功能配置不完整: {str(ie)}")
+    except Exception as e:
+        logger.error(f"获取热点相关文章失败 (Topic ID: {topic_id}): {str(e)}", exc_info=True)
+        status_code = NOT_FOUND if "未找到统一热点" in str(e) else PARAMETER_ERROR
+        return error_response(status_code, f"获取热点相关文章失败: {str(e)}")
+
 
 @client_hot_topics_bp.route("/platforms", methods=["GET"])
+# @client_auth_required # Auth likely not needed
 def get_available_platforms():
     """获取可用的热点平台列表
     
     Returns:
         平台列表
     """
-    # 返回固定的平台列表
+    # Static list remains appropriate here
     platforms = [
-        {"id": "weibo", "name": "微博热搜", "icon": "weibo-icon"},
-        {"id": "zhihu", "name": "知乎热榜", "icon": "zhihu-icon"},
-        {"id": "baidu", "name": "百度热搜", "icon": "baidu-icon"},
-        {"id": "toutiao", "name": "今日头条", "icon": "toutiao-icon"},
-        {"id": "douyin", "name": "抖音热点", "icon": "douyin-icon"}
+        {"id": "weibo", "name": "微博热搜", "icon": "fab fa-weibo"},
+        {"id": "zhihu", "name": "知乎热榜", "icon": "fab fa-zhihu"},
+        {"id": "baidu", "name": "百度热搜", "icon": "fas fa-search"},
+        {"id": "toutiao", "name": "今日头条", "icon": "far fa-newspaper"},
+        # Add others like douyin if implemented
     ]
-    
     return success_response(platforms)
 
 @client_hot_topics_bp.route("/summary", methods=["GET"])
+# @client_auth_required # Decide if auth needed
 def get_hot_topics_summary():
-    """获取热点话题摘要
+    """获取最新聚合(Unified)热点话题的摘要 (每个平台Top N)
     
-    返回各平台最新的前10条热点
+    查询参数:
+    - limit_per_platform: 每个平台返回条数，默认5
     
     Returns:
-        热点摘要数据
+        各平台Top N聚合热点摘要及更新日期
     """
     try:
-        # 创建会话和存储库
+        limit = request.args.get("limit_per_platform", 5, type=int)
+        
         db_session = get_db_session()
-        task_repo = HotTopicTaskRepository(db_session)
-        topic_repo = HotTopicRepository(db_session)
+        unified_topic_repo = UnifiedHotTopicRepository(db_session)
         
-        # 创建服务
-        hot_topic_service = HotTopicService(task_repo, topic_repo)
-        
-        # 获取各平台热点
-        platforms = ["weibo", "zhihu", "baidu", "toutiao", "douyin"]
+        latest_date = unified_topic_repo.get_latest_unified_topic_date()
+        if not latest_date:
+            return success_response({"summary": {}, "topic_date": None})
+            
+        # Fetch all unified topics for the latest date (limit might need adjustment)
+        # Consider if repo can provide grouped top N for efficiency
+        per_page = 100 # Fetch enough to likely cover top N for all platforms
+        unified_result = unified_topic_repo.get_unified_topics_by_date(latest_date, page=1, per_page=per_page)
+        all_topics_latest_date = unified_result.get("list", [])
+
         summary = {}
+        platform_counts = {}
         
-        for platform in platforms:
-            # 每个平台获取前10条
-            topics = hot_topic_service.get_latest_hot_topics(platform, 10)
-            
-            # 简化数据，只保留必要字段
-            simplified_topics = []
-            for topic in topics:
-                simplified_topics.append({
-                    "id": topic["id"],
-                    "title": topic["topic_title"],
-                    "url": topic["topic_url"],
-                    "hot_value": topic["hot_value"],
-                    "is_hot": topic["is_hot"],
-                    "is_new": topic["is_new"],
-                    "rank": topic["rank"],
-                    "heat_level": topic["heat_level"]
-                })
-            
-            summary[platform] = simplified_topics
-        
-        # 获取更新时间
-        latest_update = None
-        all_topics = hot_topic_service.get_latest_hot_topics(None, 1)
-        if all_topics:
-            latest_update = all_topics[0]["created_at"]
-        
+        for topic in all_topics_latest_date:
+             platforms = topic.get("source_platforms", [])
+             if not platforms: continue
+             
+             # Add topic to summary for each platform it belongs to, up to the limit
+             for platform in platforms:
+                 if platform not in summary:
+                      summary[platform] = []
+                      platform_counts[platform] = 0
+                 
+                 if platform_counts[platform] < limit:
+                      summary[platform].append({
+                           "id": topic["id"],
+                           "title": topic["unified_title"],
+                           "keywords": topic.get("keywords", []),
+                      })
+                      platform_counts[platform] += 1
+
         result = {
             "summary": summary,
-            "updated_at": latest_update
+            "topic_date": latest_date.isoformat()
         }
         
         return success_response(result)
     except Exception as e:
-        logger.error(f"获取热点话题摘要失败: {str(e)}")
-        return error_response(PARAMETER_ERROR, f"获取热点话题摘要失败: {str(e)}")
-
-@client_hot_topics_bp.route("/trend", methods=["GET"])
-@client_auth_required
-def get_hot_topics_trend():
-    """获取热点话题趋势
-    
-    查询参数:
-    - platform: 平台，必填
-    - days: 天数，默认7
-    
-    Returns:
-        热点趋势数据
-    """
-    try:
-        # 获取参数
-        platform = request.args.get("platform")
-        days = request.args.get("days", 7, type=int)
-        
-        if not platform:
-            return error_response(PARAMETER_ERROR, "缺少platform参数")
-        
-        # 由于当前数据模型不支持历史趋势查询，返回简化的示例数据
-        # 在实际实现中，需要扩展数据模型以支持趋势查询
-        
-        # 模拟数据示例
-        trend_data = {
-            "platform": platform,
-            "days": days,
-            "trend": [
-                {
-                    "date": "2025-04-10",
-                    "top_topics": [
-                        {"title": "示例话题1", "rank": 1, "heat_level": 5},
-                        {"title": "示例话题2", "rank": 2, "heat_level": 4}
-                    ]
-                },
-                {
-                    "date": "2025-04-11",
-                    "top_topics": [
-                        {"title": "示例话题3", "rank": 1, "heat_level": 5},
-                        {"title": "示例话题4", "rank": 2, "heat_level": 4}
-                    ]
-                }
-                # 实际实现中应返回更多天数的数据
-            ]
-        }
-        
-        return success_response(trend_data)
-    except Exception as e:
-        logger.error(f"获取热点话题趋势失败: {str(e)}")
-        return error_response(PARAMETER_ERROR, f"获取热点话题趋势失败: {str(e)}")
+        logger.error(f"获取聚合热点话题摘要失败: {str(e)}", exc_info=True)
+        return error_response(PARAMETER_ERROR, f"获取聚合热点话题摘要失败: {str(e)}")
