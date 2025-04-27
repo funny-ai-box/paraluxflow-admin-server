@@ -75,10 +75,10 @@ def discover_feeds():
 @client_auth_required
 def get_feed_detail():
     """获取Feed详情
-    
+
     查询参数:
     - feed_id: Feed ID (Required)
-    
+
     Returns:
         Feed详情和用户订阅状态
     """
@@ -90,19 +90,23 @@ def get_feed_detail():
 
         db_session = get_db_session()
         feed_repo = RssFeedRepository(db_session)
-        category_repo = RssFeedCategoryRepository(db_session) # Needed for FeedService
-        subscription_repo = UserSubscriptionRepository(db_session)
-        
+        category_repo = RssFeedCategoryRepository(db_session)
+        subscription_repo = UserSubscriptionRepository(db_session) # Repository 实例
+
         feed_service = FeedService(feed_repo, category_repo)
-        
+
         # Get Feed detail using service
         feed = feed_service.get_feed(feed_id) # Raises exception if not found
-        
+
         # Check subscription status
-        subscription = subscription_repo.get_subscription(user_id, feed_id)
-        is_subscribed = subscription is not None
-        
-        # Add category name
+        subscription_obj = subscription_repo.get_subscription(user_id, feed_id) # 获取 UserSubscription 对象
+        is_subscribed = subscription_obj is not None
+        subscription_dict = None # 初始化为 None
+        if subscription_obj:
+            # *** 使用 subscription_to_dict 方法转换对象 ***
+            subscription_dict = subscription_repo.subscription_to_dict(subscription_obj)
+
+        # Add category name (保持不变)
         if feed.get("category_id"):
              category = category_repo.get_category_by_id(feed["category_id"])
              if category:
@@ -111,14 +115,14 @@ def get_feed_detail():
         result = {
             "feed": feed,
             "is_subscribed": is_subscribed,
-            "subscription": subscription # Include subscription details if subscribed
+            "subscription": subscription_dict # <--- 使用转换后的字典
         }
-        
+
         return success_response(result)
     except Exception as e:
         logger.error(f"获取Feed详情失败 (ID: {feed_id}): {str(e)}", exc_info=True)
-
         return error_response(NOT_FOUND if "获取Feed信息失败" in str(e) else PARAMETER_ERROR, f"获取Feed详情失败: {str(e)}")
+
 
 
 @feed_bp.route("/categories", methods=["GET"])
