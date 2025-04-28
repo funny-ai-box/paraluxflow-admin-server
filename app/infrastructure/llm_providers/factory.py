@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 from app.infrastructure.llm_providers.base import LLMProviderInterface
 from app.infrastructure.llm_providers.openai_provider import OpenLLMProvider
 from app.infrastructure.llm_providers.anthropic_provider import AnthropicProvider
-from app.infrastructure.llm_providers.volcano_provider import VolcanoProvider
+
 from app.infrastructure.llm_providers.gemini_provider import GeminiProvider
 from app.core.exceptions import APIException
 from app.core.status_codes import EXTERNAL_API_ERROR, PROVIDER_NOT_FOUND
@@ -22,7 +22,7 @@ class LLMProviderFactory:
     PROVIDERS = {
         "openai": OpenLLMProvider,
         "anthropic": AnthropicProvider,
-        "volcano": VolcanoProvider,
+
         "gemini": GeminiProvider
     }
 
@@ -152,8 +152,8 @@ class LLMProviderFactory:
 
             # 3. API Key 检查 (从 merged_config 获取，因为它包含了DB或传入的值)
             api_key = merged_config.get("api_key")
-            # Anthropic 和 Volcano 可能有特殊处理（Volcano 的 initialize 内部会处理 api_key）
-            if not api_key and final_provider_name not in ["anthropic", "volcano"]:
+      
+            if not api_key and final_provider_name not in ["anthropic"]:
                  raise APIException(f"未找到 {final_provider_name} 提供商的API密钥", EXTERNAL_API_ERROR)
 
             # 4. 创建和初始化提供商实例

@@ -24,7 +24,7 @@ class ArticleVectorizationService:
             article_repo: 文章仓库
             content_repo: 文章内容仓库
             task_repo: 向量化任务仓库
-            provider_type: 提供商类型，默认为volcano
+            provider_type: 默认openai
             model: 嵌入模型名称
             store_type: 向量存储类型，默认为milvus
         """
@@ -38,12 +38,8 @@ class ArticleVectorizationService:
         self.vector_store = None
         self.collection_name = "rss_articles"  # 默认集合/索引名称
 
-        # 设置向量维度（根据模型确定）
-        if "volcano" in self.provider_type:
-            self.vector_dimension = 3072
-        else:
-            # Default or adjust based on other providers like OpenAI
-            self.vector_dimension = 3072 # Example for text-embedding-ada-002
+       
+        self.vector_dimension = 3072 # Example for text-embedding-ada-002
 
         # 初始化LLM Provider和向量存储
         self._init_services()

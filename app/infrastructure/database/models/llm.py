@@ -12,7 +12,7 @@ class LLMProvider(db.Model):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(50), nullable=False, comment="提供商名称")
-    provider_type = Column(String(20), nullable=False, comment="提供商类型，如OpenAI, Claude, Volcano")
+    provider_type = Column(String(20), nullable=False, comment="提供商类型，如OpenAI, Claude")
     description = Column(Text, nullable=True, comment="提供商描述")
     
     # 鉴权信息

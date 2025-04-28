@@ -25,7 +25,7 @@ def retry_article_vectorization():
     请求参数:
         {
             "article_id": 123,        # 文章ID
-            "provider_type": "volcano", # 可选，提供商类型
+            "provider_type": "openai", # 可选，提供商类型
             "model": "embedding-model", # 可选，使用的模型
             "reason": "手动重试"       # 可选，重试原因
         }
@@ -41,7 +41,7 @@ def retry_article_vectorization():
         return error_response(PARAMETER_ERROR, "缺少article_id参数")
     
     article_id = data["article_id"]
-    provider_type = data.get("provider_type", "volcano")
+    provider_type = data.get("provider_type")
     model = data.get("model")
     reason = data.get("reason", "管理员手动重试")
     
@@ -223,7 +223,7 @@ def search_articles():
         {
             "query": "搜索关键词",  # 查询文本
             "limit": 10,           # 限制返回数量
-            "provider_type": "volcano", # 可选，提供商类型
+            "provider_type": "openai", # 可选，提供商类型
             "model": "embedding-model" # 可选，使用的模型
         }
         
@@ -239,7 +239,7 @@ def search_articles():
         
         query = data["query"]
         limit = data.get("limit", 10)
-        provider_type = data.get("provider_type", "volcano")
+        provider_type = data.get("provider_type")
         model = data.get("model")
         
         # 创建会话和存储库
@@ -277,7 +277,7 @@ def get_similar_articles():
     请求参数:
         article_id: 文章ID
         limit: 限制返回数量，默认10
-        provider_type: 可选，提供商类型，默认volcano
+        provider_type: 可选，提供商类型，默认openai
         model: 可选，使用的模型
         
     返回:
@@ -287,7 +287,7 @@ def get_similar_articles():
         # 获取请求参数
         article_id = request.args.get("article_id", type=int)
         limit = request.args.get("limit", 10, type=int)
-        provider_type = request.args.get("provider_type", "volcano")
+        provider_type = request.args.get("provider_type", "openai")
         model = request.args.get("model")
         
         if not article_id:
@@ -391,7 +391,7 @@ def batch_retry_vectorization():
         {
             "feed_id": "feed-id",      # 可选，按Feed过滤
             "limit": 10,               # 最大处理数量
-            "provider_type": "volcano", # 可选，提供商类型
+            "provider_type": "openai", # 可选，提供商类型
             "model": "embedding-model", # 可选，使用的模型
             "reason": "批量重试"        # 可选，重试原因
         }
@@ -404,7 +404,7 @@ def batch_retry_vectorization():
         data = request.get_json() or {}
         feed_id = data.get("feed_id")
         limit = data.get("limit", 10)
-        provider_type = data.get("provider_type", "volcano")
+        provider_type = data.get("provider_type", "openai")
         model = data.get("model")
         reason = data.get("reason", "管理员批量重试")
         
