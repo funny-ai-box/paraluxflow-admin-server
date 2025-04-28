@@ -293,33 +293,39 @@ class RssSyncLog(db.Model):
         return f"<RssSyncLog id={self.id}, sync_id={self.sync_id}, status={self.status}>"
     
 class RssFeedArticleVectorizationTask(db.Model):
-    """RSS文章向量化任务表"""
+    """RSS文章向量化任务表 - 每条记录对应单个文章的向量化任务"""
     __tablename__ = "rss_feed_article_vectorization_tasks"
 
     id = Column(Integer, primary_key=True)
-    batch_id = Column(String(36), nullable=False, comment="批次ID")
+    batch_id = Column(String(36), nullable=False, comment="批次ID/任务ID")
     
-    # 任务信息
-    total_articles = Column(Integer, default=0, comment="总文章数")
-    processed_articles = Column(Integer, default=0, comment="已处理文章数")
-    success_articles = Column(Integer, default=0, comment="成功向量化文章数")
-    failed_articles = Column(Integer, default=0, comment="失败向量化文章数")
+    # 文章信息
+    article_id = Column(Integer, nullable=False, comment="文章ID")
     
     # 任务状态
-    status = Column(Integer, default=0, comment="任务状态：0=进行中，1=已完成，2=失败")
+    status = Column(Integer, default=0, comment="任务状态：0=等待处理，1=已完成，2=失败，3=处理中")
     embedding_model = Column(String(100), comment="使用的嵌入模型")
+    provider_type = Column(String(50), comment="使用的向量化提供商")
+    vector_id = Column(String(64), comment="向量库中的ID")
+    worker_id = Column(String(255), comment="处理任务的worker标识")
     
     # 时间信息
     started_at = Column(DateTime, default=datetime.now, comment="开始时间")
     ended_at = Column(DateTime, comment="结束时间")
-    total_time = Column(Float, comment="总耗时(秒)")
+    processing_time = Column(Float, comment="处理耗时(秒)")
     
     # 错误信息
     error_message = Column(Text, comment="错误信息")
+    error_type = Column(String(50), comment="错误类型")
     
-    # 其他信息
+    # 系统信息
+    memory_usage = Column(Float, comment="内存使用(MB)")
+    cpu_usage = Column(Float, comment="CPU使用率(%)")
+    worker_host = Column(String(255), comment="Worker所在机器")
+    worker_ip = Column(String(50), comment="Worker IP")
+    
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
     def __repr__(self):
-        return f"<RssFeedArticleVectorizationTask id={self.id}, batch_id={self.batch_id}, status={self.status}>"
+        return f"<RssFeedArticleVectorizationTask id={self.id}, article_id={self.article_id}, status={self.status}>"

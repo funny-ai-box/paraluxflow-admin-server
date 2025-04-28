@@ -130,7 +130,6 @@ def claim_vectorization_task():
     except Exception as e:
         logger.error(f"认领向量化任务失败: {str(e)}")
         return error_response(PARAMETER_ERROR, f"认领向量化任务失败: {str(e)}")
-
 @vectorization_jobs_bp.route("/process_article_vectorization", methods=["POST"])
 @app_key_required
 def process_article_vectorization():
@@ -141,6 +140,7 @@ def process_article_vectorization():
             "article_id": 123,        # 文章ID
             "worker_id": "worker1",   # worker标识
             "model": "embedding-model", # 可选，使用的模型
+            "provider_type": "openai", # 可选，使用的提供商
             "task_id": "uuid-task"    # 任务ID，可选
         }
         
@@ -156,6 +156,8 @@ def process_article_vectorization():
         article_id = data["article_id"]
         worker_id = data.get("worker_id", "unknown")
         task_id = data.get("task_id", str(uuid.uuid4()))
+        model = data.get("model")
+        provider_type = data.get("provider_type")
         
         # 获取开始时间
         start_time = datetime.now()
@@ -166,11 +168,38 @@ def process_article_vectorization():
         content_repo = RssFeedArticleContentRepository(db_session)
         task_repo = RssFeedArticleVectorizationTaskRepository(db_session)
         
-        logger.info(f"Worker {worker_id} 开始处理文章 {article_id} 向量化")
+        logger.info(f"Worker {worker_id} 开始处理文章 {article_id} 向量化，任务ID: {task_id}")
+        
+        # 获取系统指标
+        memory_usage = data.get("memory_usage")
+        cpu_usage = data.get("cpu_usage")
+        worker_host = data.get("worker_host")
+        worker_ip = data.get("worker_ip")
+        
+        # 检查任务是否存在，如果不存在则创建
+        task = task_repo.get_task(task_id)
+        if not task:
+            logger.info(f"任务 {task_id} 不存在，将自动创建任务")
+            try:
+                # 创建任务 - 单文章记录模式
+                task_repo.create_task({
+                    "batch_id": task_id,
+                    "article_id": article_id,
+                    "status": 3,  # 处理中
+                    "embedding_model": model,
+                    "provider_type": provider_type,
+                    "worker_id": worker_id,
+                    "started_at": datetime.now(),
+                    "memory_usage": memory_usage,
+                    "cpu_usage": cpu_usage,
+                    "worker_host": worker_host,
+                    "worker_ip": worker_ip
+                })
+                logger.info(f"成功创建任务 {task_id} 用于文章 {article_id} 的向量化")
+            except Exception as create_err:
+                logger.warning(f"创建任务失败，但将继续处理: {str(create_err)}")
         
         # 创建向量化服务
-        model = data.get("model")
-        provider_type = data.get("provider_type")
         vectorization_service = ArticleVectorizationService(
             article_repo=article_repo,
             content_repo=content_repo,
@@ -184,26 +213,15 @@ def process_article_vectorization():
             result = vectorization_service.process_article_vectorization(article_id)
             status = 1  # 成功
             error_message = None
+            error_type = None
             
-            # 更新任务日志
+            # 更新任务记录
             try:
                 task_repo.update_task(task_id, {
-                    "processed_articles": 1,
-                    "success_articles": 1,
-                    "failed_articles": 0,
                     "status": 1,  # 完成
                     "ended_at": datetime.now(),
-                    "total_time": (datetime.now() - start_time).total_seconds(),
-                    "additional_info": {
-                        "worker_id": worker_id,
-                        "article_id": article_id,
-                        "action": "process",
-                        "result": "success",
-                        "model": model,
-                        "provider_type": provider_type,
-                        "vector_id": result.get("vector_id"),
-                        "timestamp": datetime.now().isoformat()
-                    }
+                    "processing_time": (datetime.now() - start_time).total_seconds(),
+                    "vector_id": result.get("vector_id")
                 })
             except Exception as log_err:
                 logger.warning(f"更新任务日志失败: {str(log_err)}")
@@ -214,28 +232,17 @@ def process_article_vectorization():
             logger.error(f"文章向量化处理失败: {str(e)}")
             status = 2  # 失败
             error_message = str(e)
+            error_type = type(e).__name__
             result = {"status": "failed", "message": str(e)}
             
             # 更新任务日志
             try:
                 task_repo.update_task(task_id, {
-                    "processed_articles": 1,
-                    "success_articles": 0,
-                    "failed_articles": 1,
-                    "status": 1,  # 完成
+                    "status": 2,  # 失败
                     "ended_at": datetime.now(),
-                    "total_time": (datetime.now() - start_time).total_seconds(),
-                    "error_message": str(e),
-                    "additional_info": {
-                        "worker_id": worker_id,
-                        "article_id": article_id,
-                        "action": "process",
-                        "result": "failed",
-                        "error": str(e),
-                        "model": model,
-                        "provider_type": provider_type,
-                        "timestamp": datetime.now().isoformat()
-                    }
+                    "processing_time": (datetime.now() - start_time).total_seconds(),
+                    "error_message": error_message,
+                    "error_type": error_type
                 })
             except Exception as log_err:
                 logger.warning(f"更新任务日志失败: {str(log_err)}")

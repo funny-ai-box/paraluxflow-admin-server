@@ -1,5 +1,5 @@
-# app/infrastructure/database/repositories/rss_vectorization_repository.py
-"""RSS文章向量化任务仓库"""
+# app/infrastructure/database/repositories/rss/rss_vectorization_repository.py
+"""RSS文章向量化任务仓库 - 适配单文章模式"""
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
@@ -102,6 +102,28 @@ class RssFeedArticleVectorizationTaskRepository:
             logger.error(f"获取向量化任务失败, batch_id={batch_id}: {str(e)}")
             return None
 
+    def get_task_by_article_id(self, article_id: int) -> Optional[Dict[str, Any]]:
+        """根据文章ID获取最新的向量化任务
+        
+        Args:
+            article_id: 文章ID
+            
+        Returns:
+            任务信息
+        """
+        try:
+            task = self.db.query(RssFeedArticleVectorizationTask).filter(
+                RssFeedArticleVectorizationTask.article_id == article_id
+            ).order_by(desc(RssFeedArticleVectorizationTask.created_at)).first()
+            
+            if not task:
+                return None
+            
+            return self._task_to_dict(task)
+        except SQLAlchemyError as e:
+            logger.error(f"获取文章向量化任务失败, article_id={article_id}: {str(e)}")
+            return None
+
     def get_all_tasks(self, page: int = 1, per_page: int = 20, status: Optional[int] = None) -> Dict[str, Any]:
         """获取向量化任务列表
         
@@ -150,6 +172,25 @@ class RssFeedArticleVectorizationTaskRepository:
                 "error": str(e)
             }
 
+    def get_pending_tasks(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """获取待处理的向量化任务
+        
+        Args:
+            limit: 获取数量
+            
+        Returns:
+            待处理任务列表
+        """
+        try:
+            tasks = self.db.query(RssFeedArticleVectorizationTask).filter(
+                RssFeedArticleVectorizationTask.status == 0  # 待处理
+            ).order_by(RssFeedArticleVectorizationTask.created_at).limit(limit).all()
+            
+            return [self._task_to_dict(task) for task in tasks]
+        except SQLAlchemyError as e:
+            logger.error(f"获取待处理向量化任务失败: {str(e)}")
+            return []
+
     def _task_to_dict(self, task: RssFeedArticleVectorizationTask) -> Dict[str, Any]:
         """将任务对象转换为字典
         
@@ -162,16 +203,21 @@ class RssFeedArticleVectorizationTaskRepository:
         return {
             "id": task.id,
             "batch_id": task.batch_id,
-            "total_articles": task.total_articles,
-            "processed_articles": task.processed_articles,
-            "success_articles": task.success_articles,
-            "failed_articles": task.failed_articles,
+            "article_id": task.article_id,
             "status": task.status,
             "embedding_model": task.embedding_model,
+            "provider_type": task.provider_type,
+            "vector_id": task.vector_id,
+            "worker_id": task.worker_id,
             "started_at": task.started_at.isoformat() if task.started_at else None,
             "ended_at": task.ended_at.isoformat() if task.ended_at else None,
-            "total_time": task.total_time,
+            "processing_time": task.processing_time,
             "error_message": task.error_message,
+            "error_type": task.error_type,
+            "memory_usage": task.memory_usage,
+            "cpu_usage": task.cpu_usage,
+            "worker_host": task.worker_host,
+            "worker_ip": task.worker_ip,
             "created_at": task.created_at.isoformat() if task.created_at else None,
             "updated_at": task.updated_at.isoformat() if task.updated_at else None
         }
