@@ -36,11 +36,21 @@ def _add_reading_status_to_articles(user_id: str, articles: list, reading_histor
     if not articles:
         return articles
         
+    # 获取文章ID列表
     article_ids = [article["id"] for article in articles]
+    
     try:
-        readings = reading_history_repo.get_readings_by_articles(user_id, article_ids)
-        user_readings_map = {reading["article_id"]: reading for reading in readings}
+        # 为每篇文章单独获取阅读状态
+        # 替代不存在的 get_readings_by_articles 方法
+        user_readings_map = {}
+        for article_id in article_ids:
+            reading = reading_history_repo.get_reading(user_id, article_id)
+            if reading:
+                # 将读取对象转为字典
+                reading_dict = reading_history_repo.reading_history_to_dict(reading)
+                user_readings_map[article_id] = reading_dict
         
+        # 将阅读状态添加到文章对象中
         for article in articles:
             reading_info = user_readings_map.get(article["id"])
             if reading_info:
@@ -51,14 +61,16 @@ def _add_reading_status_to_articles(user_id: str, articles: list, reading_histor
                 article["is_read"] = False
                 article["is_favorite"] = False
                 article["read_progress"] = 0
+                
     except Exception as e:
         logger.warning(f"获取文章阅读状态失败 (User: {user_id}): {str(e)}")
-        for article in articles: # Ensure defaults are set even if fetching fails
+        # 确保即使出错也给每篇文章设置默认值
+        for article in articles:
             article["is_read"] = False
             article["is_favorite"] = False
             article["read_progress"] = 0
+            
     return articles
-
 @article_bp.route("/list", methods=["GET"])
 @client_auth_required
 def get_articles():
@@ -96,13 +108,13 @@ def get_articles():
              return success_response({"list": [], "total": 0, "page": page, "per_page": per_page, "pages": 0})
 
         filters = {"status": 1}
+
         if feed_id:
-            if feed_id in subscribed_feed_ids:
-                 filters["feed_id"] = feed_id
-            else:
-                 return success_response({"list": [], "total": 0, "page": page, "per_page": per_page, "pages": 0})
+                # 移除订阅检查，直接添加 feed_id 过滤
+                filters["feed_id"] = feed_id
         else:
-            filters["feed_ids"] = subscribed_feed_ids
+                # 只有当没有指定 feed_id 时，才限制为已订阅的 feeds
+                filters["feed_ids"] = subscribed_feed_ids
 
         if search_query:
             filters["search_query"] = search_query
@@ -176,10 +188,10 @@ def get_article_detail():
         article = article_service.get_article(article_id) # Raises exception if article not found
         
         # Get reading history (don't mark as read here, use separate endpoint)
-        reading = reading_history_repo.get_reading(user_id, article_id)
+        reading_obj = reading_history_repo.get_reading(user_id, article_id)
         
         # If no reading history, create a default one (is_read=False)
-        if not reading:
+        if not reading_obj:
               reading_data = {
                     "user_id": user_id,
                     "article_id": article_id,
@@ -187,7 +199,10 @@ def get_article_detail():
                     "is_read": False,
                     "is_favorite": False,
                }
-              reading = reading_history_repo.add_reading_record(reading_data) # Assuming add_reading_record returns the created object
+              reading_obj = reading_history_repo.add_reading_record(reading_data)
+        
+        # Convert reading object to dictionary
+        reading = reading_history_repo.reading_history_to_dict(reading_obj) if reading_obj else None
 
         similar_articles = []
         if include_similar and VECTORIZATION_ENABLED and article.get("is_vectorized"):
@@ -264,7 +279,8 @@ def update_reading_history():
         
         if reading:
             if read_time_delta is not None:
-                 current_read_time = reading.get("read_time", 0)
+                 # 修复: 直接访问模型的属性而不是使用.get()方法
+                 current_read_time = reading.read_time or 0
                  update_data["read_time"] = current_read_time + read_time_delta
             # Only update if there's data to update
             if update_data:
@@ -294,7 +310,9 @@ def update_reading_history():
         if not reading: # Handle case where add/update failed
             return error_response(PARAMETER_ERROR, "更新或创建阅读记录失败")
             
-        return success_response(reading)
+        # 修复: 将SQLAlchemy model对象转换为字典再返回
+        reading_dict = reading_history_repo.reading_history_to_dict(reading)
+        return success_response(reading_dict)
     except Exception as e:
         logger.error(f"更新阅读记录失败: {str(e)}", exc_info=True)
         return error_response(PARAMETER_ERROR, f"更新阅读记录失败: {str(e)}")

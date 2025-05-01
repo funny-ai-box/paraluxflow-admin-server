@@ -440,20 +440,30 @@ class UserReadingHistoryRepository:
             logger.error(f"获取阅读历史失败, user_id={user_id}: {str(e)}")
             return []
         
-    def get_article_ids_by_status(self, filter_criteria: Dict[str, Any]) -> List[int]: # 注意参数名和类型可能需要调整
-        """根据指定状态获取文章ID列表"""
+    def get_article_ids_by_status(self, filter_criteria: Dict[str, Any]) -> List[int]:
+        """根据指定状态获取文章ID列表
+        
+        Args:
+            filter_criteria: 过滤条件，例如：
+                - user_id: 用户ID
+                - is_favorite: 是否收藏
+                - is_read: 是否已读
+        
+        Returns:
+            符合条件的文章ID列表
+        """
         try:
             query = self.db.query(UserReadingHistory.article_id)
 
             # 应用过滤条件
             if "user_id" in filter_criteria:
-                 query = query.filter(UserReadingHistory.user_id == filter_criteria["user_id"])
+                query = query.filter(UserReadingHistory.user_id == filter_criteria["user_id"])
 
-            # *** 修改这里：根据传入的键值对进行过滤 ***
+            # 根据传入的键值对进行过滤
             if "is_favorite" in filter_criteria:
-                 query = query.filter(UserReadingHistory.is_favorite == filter_criteria["is_favorite"])
+                query = query.filter(UserReadingHistory.is_favorite == filter_criteria["is_favorite"])
             if "is_read" in filter_criteria:
-                 query = query.filter(UserReadingHistory.is_read == filter_criteria["is_read"])
+                query = query.filter(UserReadingHistory.is_read == filter_criteria["is_read"])
             # 可以根据需要添加其他过滤条件
 
             article_ids = query.all()
@@ -461,7 +471,7 @@ class UserReadingHistoryRepository:
         except SQLAlchemyError as e:
             logger.error(f"根据状态获取文章ID失败: {str(e)}")
             return []
-        
+            
 
     
     def add_reading_record(self, reading_data: Dict[str, Any]) -> Optional[UserReadingHistory]:
