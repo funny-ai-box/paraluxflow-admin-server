@@ -56,8 +56,8 @@ def register_errorhandlers(app):
     from app.api.middleware.error_handling import handle_exception
     app.register_error_handler(Exception, handle_exception)
     return None
-
 def register_commands(app):
     """注册命令行命令"""
     # 在这里添加自定义Flask命令
-    pass
+    from app.commands.init_hot_topic_platforms import register_commands as register_hot_platform_commands
+    register_hot_platform_commands(app)

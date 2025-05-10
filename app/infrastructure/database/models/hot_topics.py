@@ -124,3 +124,29 @@ class UnifiedHotTopic(db.Model):
 
     def __repr__(self):
         return f"<UnifiedHotTopic {self.unified_title} ({self.topic_date})>"
+    
+
+class HotTopicPlatform(db.Model):
+    """热点平台模型"""
+    __tablename__ = "hot_topic_platforms"
+
+    id = Column(Integer, primary_key=True)
+    code = Column(String(50), unique=True, nullable=False, comment="平台标识码")
+    name = Column(String(100), nullable=False, comment="平台名称")
+    icon = Column(String(100), comment="平台图标 (例如 fa-weibo)")
+    description = Column(String(255), comment="平台描述")
+    url = Column(String(255), comment="平台URL")
+    
+    # 爬虫配置
+    crawl_config = Column(JSON, comment="爬虫配置 (可选的 JSON 格式)")
+    
+    # 状态信息
+    is_active = Column(Boolean, default=True, comment="是否启用")
+    last_crawl_at = Column(DateTime, comment="最近一次爬取时间")
+    display_order = Column(Integer, default=100, comment="显示顺序 (从小到大排序)")
+    
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f"<HotTopicPlatform {self.code}>"

@@ -8,22 +8,20 @@ from app.api.middleware.client_auth import client_auth_required
 from app.core.responses import success_response, error_response
 from app.core.status_codes import PARAMETER_ERROR, NOT_FOUND
 from app.infrastructure.database.session import get_db_session
-from app.infrastructure.database.repositories.hot_topic_repository import HotTopicRepository, UnifiedHotTopicRepository
+from app.infrastructure.database.repositories.hot_topic_repository import HotTopicPlatformRepository, HotTopicRepository, UnifiedHotTopicRepository
 
 
 from app.domains.hot_topics.services.hot_topic_search_service import HotTopicSearchService
+from app.domains.hot_topics.services.hot_topic_platform_service import HotTopicPlatformService
 from app.domains.rss.services.vectorization_service import ArticleVectorizationService
 from app.infrastructure.database.repositories.rss.rss_article_repository import RssFeedArticleRepository
 from app.infrastructure.database.repositories.rss.rss_article_content_repository import RssFeedArticleContentRepository
 from app.infrastructure.database.repositories.rss.rss_vectorization_repository import RssFeedArticleVectorizationTaskRepository
 
-
 # Assuming client_hot_topics_bp is defined in app/api/client/v1/hot_topics/__init__.py
 client_hot_topics_bp = Blueprint("client_hot_topics", __name__) # Removed url_prefix
 
-
 logger = logging.getLogger(__name__)
-
 
 @client_hot_topics_bp.route("/unified/latest", methods=["GET"])
 # @client_auth_required # Decide if auth is needed
@@ -167,8 +165,6 @@ def get_hot_topic_related_articles():
     Returns:
         相关文章列表
     """
-
-
     try:
         topic_id = request.args.get("topic_id")
         if not topic_id:
@@ -221,25 +217,137 @@ def get_hot_topic_related_articles():
 
 
 @client_hot_topics_bp.route("/platforms", methods=["GET"])
-# @client_auth_required # Auth likely not needed
 def get_available_platforms():
     """获取可用的热点平台列表
     
     Returns:
         平台列表
     """
-    # Static list remains appropriate here
-    platforms = [
-        {"id": "weibo", "name": "微博热搜", "icon": "fab fa-weibo"},
-        {"id": "zhihu", "name": "知乎热榜", "icon": "fab fa-zhihu"},
-        {"id": "baidu", "name": "百度热搜", "icon": "fas fa-search"},
-        {"id": "toutiao", "name": "今日头条", "icon": "far fa-newspaper"},
-        # Add others like douyin if implemented
-    ]
-    return success_response(platforms)
+    try:
+        db_session = get_db_session()
+        platform_repo = HotTopicPlatformRepository(db_session)
+        hot_topic_repo = HotTopicRepository(db_session)
+        
+        # 使用平台服务获取平台信息
+        platform_service = HotTopicPlatformService(platform_repo, hot_topic_repo)
+        platforms = platform_service.get_platforms(only_active=True)
+        
+        # 如果数据库中没有平台数据，返回默认平台列表
+        if not platforms:
+            platforms = [
+                {"code": "weibo", "name": "微博热搜", "icon": "fab fa-weibo"},
+                {"code": "zhihu", "name": "知乎热榜", "icon": "fab fa-zhihu"},
+                {"code": "baidu", "name": "百度热搜", "icon": "fas fa-search"},
+                {"code": "toutiao", "name": "今日头条", "icon": "far fa-newspaper"},
+                {"code": "douyin", "name": "抖音热点", "icon": "fab fa-tiktok"}
+            ]
+        
+        return success_response(platforms)
+    except Exception as e:
+        logger.error(f"获取热点平台列表失败: {str(e)}", exc_info=True)
+        # 发生错误时也返回默认平台列表
+        default_platforms = [
+            {"code": "weibo", "name": "微博热搜", "icon": "fab fa-weibo"},
+            {"code": "zhihu", "name": "知乎热榜", "icon": "fab fa-zhihu"},
+            {"code": "baidu", "name": "百度热搜", "icon": "fas fa-search"},
+            {"code": "toutiao", "name": "今日头条", "icon": "far fa-newspaper"},
+        ]
+        return success_response(default_platforms)
+
+
+@client_hot_topics_bp.route("/platform/topics", methods=["GET"])
+def get_platform_topics():
+    """获取指定平台的热点话题列表
+    
+    查询参数:
+    - platform_code: 平台代码 (必需)
+    - limit: 返回数量限制，默认50
+    - topic_date: 指定日期 (YYYY-MM-DD)，不指定则获取最新
+    
+    Returns:
+        指定平台的热点话题列表
+    """
+    try:
+        platform_code = request.args.get("platform_code")
+        if not platform_code:
+            return error_response(PARAMETER_ERROR, "缺少 platform_code 查询参数")
+            
+        limit = request.args.get("limit", 50, type=int)
+        topic_date = request.args.get("topic_date")
+        
+        db_session = get_db_session()
+        platform_repo = HotTopicPlatformRepository(db_session)
+        hot_topic_repo = HotTopicRepository(db_session)
+        
+        platform_service = HotTopicPlatformService(platform_repo, hot_topic_repo)
+        
+        try:
+            topics = platform_service.get_platform_topics(
+                platform_code=platform_code,
+                limit=limit,
+                date_str=topic_date
+            )
+            
+            # 获取平台信息
+            platform = platform_service.get_platform_by_code(platform_code)
+            
+            return success_response({
+                "platform": platform,
+                "topics": topics,
+                "total": len(topics)
+            })
+        except Exception as e:
+            # 如果平台不存在或其他错误
+            logger.error(f"获取平台 {platform_code} 的热点失败: {str(e)}")
+            return error_response(NOT_FOUND if "不存在" in str(e) else PARAMETER_ERROR, str(e))
+            
+    except Exception as e:
+        logger.error(f"获取平台热点失败: {str(e)}", exc_info=True)
+        return error_response(PARAMETER_ERROR, f"获取平台热点失败: {str(e)}")
+
+
+@client_hot_topics_bp.route("/platform/all_topics", methods=["GET"])
+def get_all_platforms_topics():
+    """获取所有平台的热点话题
+    
+    查询参数:
+    - limit_per_platform: 每个平台返回的话题数量，默认10
+    
+    Returns:
+        所有平台的热点话题
+    """
+    try:
+        limit_per_platform = request.args.get("limit_per_platform", 10, type=int)
+        
+        db_session = get_db_session()
+        platform_repo = HotTopicPlatformRepository(db_session)
+        hot_topic_repo = HotTopicRepository(db_session)
+        
+        platform_service = HotTopicPlatformService(platform_repo, hot_topic_repo)
+        
+        result = platform_service.get_all_platforms_topics(limit_per_platform)
+        
+        # 构建更友好的返回结构
+        platforms_topics = []
+        for platform_code, data in result.items():
+            platform_data = {
+                "platform": data.get("platform", {}),
+                "topics": data.get("topics", []),
+                "total": len(data.get("topics", [])),
+                "error": data.get("error")
+            }
+            platforms_topics.append(platform_data)
+            
+        return success_response({
+            "platforms": platforms_topics,
+            "total_platforms": len(platforms_topics)
+        })
+    except Exception as e:
+        logger.error(f"获取所有平台热点失败: {str(e)}", exc_info=True)
+        return error_response(PARAMETER_ERROR, f"获取所有平台热点失败: {str(e)}")
+
 
 @client_hot_topics_bp.route("/summary", methods=["GET"])
-# @client_auth_required # Decide if auth needed
 def get_hot_topics_summary():
     """获取最新聚合(Unified)热点话题的摘要 (每个平台Top N)
     

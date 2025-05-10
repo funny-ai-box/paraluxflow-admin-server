@@ -4,11 +4,11 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 
-from sqlalchemy import and_, or_, desc, func
+from sqlalchemy import and_, asc, or_, desc, func
 from sqlalchemy.exc import SQLAlchemyError,IntegrityError
 from sqlalchemy.orm import Session
 from datetime import datetime, date
-from app.infrastructure.database.models.hot_topics import HotTopicTask, HotTopic, HotTopicLog, UnifiedHotTopic
+from app.infrastructure.database.models.hot_topics import HotTopicPlatform, HotTopicTask, HotTopic, HotTopicLog, UnifiedHotTopic
 
 logger = logging.getLogger(__name__)
 
@@ -704,4 +704,133 @@ class UnifiedHotTopicRepository:
             "ai_processing_time": topic.ai_processing_time,
             "created_at": topic.created_at.isoformat() if topic.created_at else None,
             "updated_at": topic.updated_at.isoformat() if topic.updated_at else None
+        }
+class HotTopicPlatformRepository:
+    """热点平台仓库"""
+
+    def __init__(self, db_session: Session):
+        """初始化仓库
+        
+        Args:
+            db_session: 数据库会话
+        """
+        self.db = db_session
+
+    def get_all_platforms(self, only_active: bool = True) -> List[Dict[str, Any]]:
+        """获取所有平台
+        
+        Args:
+            only_active: 是否只获取激活状态的平台
+            
+        Returns:
+            平台列表
+        """
+        try:
+            query = self.db.query(HotTopicPlatform)
+            
+            if only_active:
+                query = query.filter(HotTopicPlatform.is_active == True)
+                
+            platforms = query.order_by(asc(HotTopicPlatform.display_order)).all()
+            return [self._platform_to_dict(platform) for platform in platforms]
+        except SQLAlchemyError as e:
+            logger.error(f"获取平台列表失败: {str(e)}")
+            return []
+
+    def get_platform_by_code(self, code: str) -> Optional[Dict[str, Any]]:
+        """根据标识码获取平台
+        
+        Args:
+            code: 平台标识码
+            
+        Returns:
+            平台信息或None
+        """
+        try:
+            platform = self.db.query(HotTopicPlatform).filter(
+                HotTopicPlatform.code == code
+            ).first()
+            
+            if not platform:
+                return None
+                
+            return self._platform_to_dict(platform)
+        except SQLAlchemyError as e:
+            logger.error(f"获取平台失败, code={code}: {str(e)}")
+            return None
+
+    def create_platform(self, platform_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """创建平台
+        
+        Args:
+            platform_data: 平台数据
+            
+        Returns:
+            创建的平台或None
+        """
+        try:
+            platform = HotTopicPlatform(**platform_data)
+            self.db.add(platform)
+            self.db.commit()
+            self.db.refresh(platform)
+            
+            return self._platform_to_dict(platform)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error(f"创建平台失败: {str(e)}")
+            return None
+
+    def update_platform(self, code: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """更新平台
+        
+        Args:
+            code: 平台标识码
+            update_data: 更新数据
+            
+        Returns:
+            更新后的平台或None
+        """
+        try:
+            platform = self.db.query(HotTopicPlatform).filter(
+                HotTopicPlatform.code == code
+            ).first()
+            
+            if not platform:
+                return None
+                
+            for key, value in update_data.items():
+                if hasattr(platform, key):
+                    setattr(platform, key, value)
+                    
+            self.db.commit()
+            self.db.refresh(platform)
+            
+            return self._platform_to_dict(platform)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error(f"更新平台失败, code={code}: {str(e)}")
+            return None
+
+    def _platform_to_dict(self, platform: HotTopicPlatform) -> Dict[str, Any]:
+        """将平台对象转换为字典
+        
+        Args:
+            platform: 平台对象
+            
+        Returns:
+            平台字典
+        """
+        return {
+            "id": platform.id,
+            "code": platform.code,
+            "name": platform.name,
+            "icon": platform.icon,
+            "description": platform.description,
+            "url": platform.url,
+            "crawl_config": platform.crawl_config,
+            "is_active": platform.is_active,
+            "last_crawl_at": platform.last_crawl_at.isoformat() if platform.last_crawl_at else None,
+            "display_order": platform.display_order,
+            "created_at": platform.created_at.isoformat() if platform.created_at else None,
+            "updated_at": platform.updated_at.isoformat() if platform.updated_at else None
         }
