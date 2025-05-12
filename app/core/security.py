@@ -39,7 +39,7 @@ def generate_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = No
     
     Args:
         data: 令牌数据
-        expires_delta: 过期时间间隔，默认为24小时
+        expires_delta: 过期时间间隔，默认为720小时
         
     Returns:
         JWT令牌
@@ -50,7 +50,7 @@ def generate_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = No
     if expires_delta:
         expire = datetime.now(tz=pytz.UTC) + expires_delta
     else:
-        expire = datetime.now(tz=pytz.UTC) + timedelta(hours=24)
+        expire = datetime.now(tz=pytz.UTC) + timedelta(hours=720)
     
     # 添加标准声明
     payload.update({
