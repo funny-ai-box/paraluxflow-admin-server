@@ -16,10 +16,10 @@ preferences_bp = Blueprint("preferences_bp", __name__)
 
 logger = logging.getLogger(__name__)
 
-@preferences_bp.route("get_preferences", methods=["GET"])
+@preferences_bp.route("/list", methods=["GET"])
 @client_auth_required
 def get_user_preferences():
-    """获取用户偏好设置
+    """获取用户偏好设置列表
     
     查询参数:
     - category: 设置分类，可选
@@ -42,9 +42,9 @@ def get_user_preferences():
         logger.error(f"获取用户偏好设置失败: {str(e)}", exc_info=True)
         return error_response(PARAMETER_ERROR, f"获取用户偏好设置失败: {str(e)}")
 
-@preferences_bp.route("/update_preferences", methods=["POST"])
+@preferences_bp.route("/batch_update", methods=["POST"])
 @client_auth_required
-def update_user_preferences():
+def batch_update_preferences():
     """批量更新用户偏好设置
     
     请求体:
@@ -88,20 +88,25 @@ def update_user_preferences():
         logger.error(f"更新用户偏好设置失败: {str(e)}", exc_info=True)
         return error_response(PARAMETER_ERROR, f"更新用户偏好设置失败: {str(e)}")
 
-@preferences_bp.route("/get_preference_by_key", methods=["GET"])
+@preferences_bp.route("/single", methods=["GET"])
 @client_auth_required
-def get_user_preference(category, setting_key):
+def get_single_preference():
     """获取用户单个偏好设置
     
-    Args:
-        category: 设置分类
-        setting_key: 设置键名
+    查询参数:
+    - category: 设置分类（必需）
+    - setting_key: 设置键名（必需）
     
     Returns:
         偏好设置值
     """
     try:
         user_id = g.user_id
+        category = request.args.get("category")
+        setting_key = request.args.get("setting_key")
+        
+        if not category or not setting_key:
+            return error_response(PARAMETER_ERROR, "缺少必需参数: category 和 setting_key")
         
         db_session = get_db_session()
         preferences_repo = UserPreferencesRepository(db_session)
@@ -118,18 +123,16 @@ def get_user_preference(category, setting_key):
         logger.error(f"获取用户偏好设置失败: {str(e)}", exc_info=True)
         return error_response(PARAMETER_ERROR, f"获取用户偏好设置失败: {str(e)}")
 
-@preferences_bp.route("/setting_preference", methods=["POST"])
+@preferences_bp.route("/single", methods=["POST"])
 @client_auth_required
-def set_user_preference(category, setting_key):
+def set_single_preference():
     """设置用户单个偏好
-    
-    Args:
-        category: 设置分类
-        setting_key: 设置键名
     
     请求体:
     {
-        "value": "设置值"
+        "category": "language",
+        "setting_key": "preferred_language",
+        "value": "zh-CN"
     }
     
     Returns:
@@ -138,10 +141,18 @@ def set_user_preference(category, setting_key):
     try:
         user_id = g.user_id
         data = request.get_json()
-        if not data or "value" not in data:
-            return error_response(PARAMETER_ERROR, "未提供设置值")
+        if not data:
+            return error_response(PARAMETER_ERROR, "未提供数据")
         
-        value = data["value"]
+        category = data.get("category")
+        setting_key = data.get("setting_key")
+        value = data.get("value")
+        
+        if not category or not setting_key:
+            return error_response(PARAMETER_ERROR, "缺少必需参数: category 和 setting_key")
+        
+        if value is None:
+            return error_response(PARAMETER_ERROR, "未提供设置值")
         
         db_session = get_db_session()
         preferences_repo = UserPreferencesRepository(db_session)
@@ -157,10 +168,9 @@ def set_user_preference(category, setting_key):
         logger.error(f"设置用户偏好失败: {str(e)}", exc_info=True)
         return error_response(PARAMETER_ERROR, f"设置用户偏好失败: {str(e)}")
 
-
-@preferences_bp.route("/preferences/reset", methods=["POST"])
+@preferences_bp.route("/reset", methods=["POST"])
 @client_auth_required
-def reset_user_preferences():
+def reset_preferences():
     """重置用户偏好设置
     
     请求体:
@@ -188,10 +198,10 @@ def reset_user_preferences():
         logger.error(f"重置用户偏好设置失败: {str(e)}", exc_info=True)
         return error_response(PARAMETER_ERROR, f"重置用户偏好设置失败: {str(e)}")
 
-@preferences_bp.route("/preferences/definitions", methods=["GET"])
+@preferences_bp.route("/definitions", methods=["GET"])
 @client_auth_required
 def get_preference_definitions():
-    """获取偏好设置定义
+    """获取偏好设置定义列表
     
     查询参数:
     - category: 设置分类，可选
