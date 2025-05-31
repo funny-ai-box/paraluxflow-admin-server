@@ -19,8 +19,7 @@ class User(db.Model):
     avatar_url = Column(String(512), comment="头像URL")
     status = Column(Integer, default=1, comment="状态: 1=正常, 0=禁用")
     last_login_at = Column(DateTime, comment="最后登录时间")
-    preferences = Column(JSON, comment="用户偏好设置")
-
+ 
     # 统计信息
     subscription_count = Column(Integer, default=0, comment="订阅源数量")
     reading_count = Column(Integer, default=0, comment="已读文章数量")
