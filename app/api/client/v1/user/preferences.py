@@ -227,6 +227,8 @@ def get_preference_definitions():
                     organized_definitions[cat] = []
                 organized_definitions[cat].append(definition)
             
+            print(organized_definitions)
+            
             return success_response(organized_definitions)
         else:
             return success_response(definitions)

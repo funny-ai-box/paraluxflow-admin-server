@@ -1,6 +1,6 @@
 """AI供应商基础抽象类"""
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, Generator, List, Optional, Union
 
 class LLMProviderInterface(ABC):
     """AI模型提供商接口"""
@@ -96,6 +96,45 @@ class LLMProviderInterface(ABC):
         
         Returns:
             可用模型信息列表
+        """
+        pass
+    @abstractmethod
+    def generate_chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 1000,
+        temperature: float = 0.7,
+        top_p: float = 1.0,
+        stop_sequences: Optional[List[str]] = None,
+        **kwargs
+    ) -> Generator[Dict[str, Any], None, None]:
+        """生成流式对话完成
+        
+        Args:
+            messages: 消息历史列表
+            max_tokens: 最大生成的token数量
+            temperature: 温度参数，控制随机性
+            top_p: 核采样参数
+            stop_sequences: 停止生成的序列
+            **kwargs: 其他参数
+            
+        Yields:
+            流式响应数据块，格式：
+            {
+                "type": "content",  # 或 "usage", "error"
+                "content": "文本内容",
+                "usage": {...},
+                "finish_reason": "stop"
+            }
+        """
+        pass
+
+    @abstractmethod
+    def supports_streaming(self) -> bool:
+        """检查是否支持流式输出
+        
+        Returns:
+            是否支持流式输出
         """
         pass
     

@@ -1,6 +1,6 @@
 # app/infrastructure/llm_providers/openai_provider.py
 import time
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, Generator, List, Optional, Union
 import logging
 
 from openai import OpenAI, APIError, RateLimitError, APIConnectionError
@@ -386,6 +386,94 @@ class OpenLLMProvider(LLMProviderInterface):
              # Catch any other unexpected exceptions during health check
              logger.error(f"OpenAI health check failed with unexpected error: {str(e)}", exc_info=True)
              return False
+        
+    def generate_chat_completion_stream(
+    self,
+    messages: List[Dict[str, str]],
+    max_tokens: int = 1000,
+    temperature: float = 0.7,
+    top_p: float = 1.0,
+    stop_sequences: Optional[List[str]] = None,
+    model: Optional[str] = None,
+    **kwargs
+) -> Generator[Dict[str, Any], None, None]:
+        """生成流式对话完成"""
+        if not self.client:
+            raise APIException("OpenAI client not initialized", OPENAI_API_ERROR)
+
+        resolved_model = model or self.default_model
+        logger.debug(f"Generating streaming chat completion with model: {resolved_model}")
+
+        def operation_func():
+            try:
+                stream = self.client.chat.completions.create(
+                    model=resolved_model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    stop=stop_sequences,
+                    stream=True,  # 启用流式输出
+                    **kwargs
+                )
+                
+                accumulated_content = ""
+                
+                for chunk in stream:
+                    if chunk.choices and len(chunk.choices) > 0:
+                        choice = chunk.choices[0]
+                        
+                        # 处理内容增量
+                        if choice.delta and choice.delta.content:
+                            content_delta = choice.delta.content
+                            accumulated_content += content_delta
+                            
+                            yield {
+                                "type": "content",
+                                "content": content_delta,
+                                "accumulated": accumulated_content
+                            }
+                        
+                        # 处理完成原因
+                        if choice.finish_reason:
+                            yield {
+                                "type": "finish",
+                                "finish_reason": choice.finish_reason,
+                                "accumulated": accumulated_content
+                            }
+                            break
+                
+                # 发送使用统计（如果可用）
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    yield {
+                        "type": "usage",
+                        "usage": {
+                            "prompt_tokens": chunk.usage.prompt_tokens,
+                            "completion_tokens": chunk.usage.completion_tokens,
+                            "total_tokens": chunk.usage.total_tokens
+                        }
+                    }
+            
+            except Exception as e:
+                logger.error(f"OpenAI streaming error: {str(e)}")
+                yield {
+                    "type": "error",
+                    "error": str(e)
+                }
+        
+        try:
+            # 使用现有的重试机制包装流式操作
+            for chunk in operation_func():
+                yield chunk
+        except Exception as e:
+            if not isinstance(e, APIException):
+                self._handle_api_error(f"Streaming Chat Completion ({resolved_model})", e)
+            else:
+                raise e
+
+    def supports_streaming(self) -> bool:
+        """检查是否支持流式输出"""
+        return True
 
     def get_provider_name(self) -> str:
         """获取提供商名称"""
