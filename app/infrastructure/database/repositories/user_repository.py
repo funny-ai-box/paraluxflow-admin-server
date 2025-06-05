@@ -154,7 +154,7 @@ class UserRepository:
             "avatar_url": user.avatar_url,
             "status": user.status,
             "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
-            "preferences": user.preferences,
+
             "subscription_count": user.subscription_count,
             "reading_count": user.reading_count,
             "favorite_count": user.favorite_count,
