@@ -20,7 +20,7 @@ from app.api.client.v1.auth import auth_bp
 
 logger = logging.getLogger(__name__)
 
-@auth_bp.route("/login_by_token", methods=["GET"])
+@auth_bp.route("/login_by_token", methods=["POST"])
 def login_by_token():
     """通过Firebase ID令牌登录 - 使用JWT认证
     
@@ -32,7 +32,12 @@ def login_by_token():
     """
     try:
         # 获取ID令牌
-        id_token = request.args.get("id_token")
+        print("-----------------")
+        data=request.get_json()
+        id_token = data.get("id_token")
+        print("*"*100)
+        print(id_token)
+        print("*"*100)
         if not id_token:
             return error_response(PARAMETER_ERROR, "idToken is required")
         print(f"id_token: {id_token}")
