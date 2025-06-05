@@ -171,3 +171,34 @@ def login_with_email():
     except Exception as e:
         logger.error(f"邮箱登录时发生意外错误: {str(e)}", exc_info=True)
         return error_response(AUTH_FAILED, "登录过程中发生错误")
+    
+@auth_bp.route("/logout", methods=["POST"])
+@client_auth_required
+def logout():
+    """用户注销
+    
+    此路由需要有效的JWT令牌才能访问
+    注销后，客户端需要删除本地存储的JWT令牌
+    服务端不做任何数据库操作，JWT令牌通过客户端删除来失效
+    
+    Returns:
+        注销成功响应
+    """
+    try:
+        # 从g对象获取用户信息
+        user_id = g.user_id
+        username = getattr(g, 'username', None)
+        
+        # 记录注销日志
+        logger.info(f"用户注销: user_id={user_id}, username={username}")
+        
+        # 返回注销成功响应
+        # 客户端收到此响应后应立即删除本地存储的JWT令牌
+        return success_response({
+            "message": "注销成功，请删除本地令牌",
+            "timestamp": datetime.utcnow().isoformat()
+        }, "用户已成功注销")
+        
+    except Exception as e:
+        logger.error(f"用户注销失败: {str(e)}")
+        return error_response(AUTH_FAILED, f"注销失败: {str(e)}")
