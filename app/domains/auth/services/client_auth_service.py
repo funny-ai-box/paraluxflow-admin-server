@@ -19,20 +19,13 @@ class ClientAuthService:
         self.user_repo = user_repository
 
     def register_with_email_password(
-        self, email: str, encrypted_password: str, username: Optional[str] = None
+        self, email: str, password: str, username: Optional[str] = None
     ) -> Dict[str, Any]:
         """邮箱密码注册"""
         if not is_email(email):
             raise ValidationException("无效的邮箱格式")
 
-        # Decrypt password
-        try:
-            password = decrypt_with_private_key(encrypted_password)
-            if len(password) < 6: # Example: Add password complexity check
-                raise ValidationException("密码长度至少需要6位")
-        except Exception as e:
-            logger.error(f"密码解密失败: {str(e)}")
-            raise ValidationException("密码解密失败或格式错误")
+
 
         # Check if email exists
         existing_user = self.user_repo.find_by_email(email)
@@ -88,7 +81,7 @@ class ClientAuthService:
         }
 
     def login_with_email_password(
-        self, email: str, encrypted_password: str
+        self, email: str, password: str
     ) -> Dict[str, Any]:
         """邮箱密码登录"""
         if not is_email(email):
@@ -102,12 +95,7 @@ class ClientAuthService:
         if user.status != 1:
              raise AuthenticationException("账户不可用")
 
-        # Decrypt password
-        try:
-            password = decrypt_with_private_key(encrypted_password)
-        except Exception as e:
-            logger.error(f"密码解密失败: {str(e)}")
-            raise AuthenticationException("邮箱或密码错误") # Don't reveal decryption error
+
 
         # Verify password
         if not verify_password(user.password_hash, password):
