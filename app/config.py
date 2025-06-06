@@ -85,7 +85,7 @@ class DevelopmentConfig(Config):
 class TestingConfig(Config):
     """测试环境配置"""
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = "mysql+pymysql://1"
+
 
 class ProductionConfig(Config):
     """生产环境配置"""
