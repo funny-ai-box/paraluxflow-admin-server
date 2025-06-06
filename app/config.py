@@ -11,8 +11,8 @@ class Config:
     SQLALCHEMY_ECHO = False
     
     # 数据库配置
-    # SQLALCHEMY_DATABASE_URI = os.environ.get("SQLALCHEMY_DATABASE_URI", "mysql+pymysql://root:UnDHt45VJd21akebR08fpqiT639AG7XF@mysql.zeabur.internal/paraluxflow")
-    SQLALCHEMY_DATABASE_URI = os.environ.get("SQLALCHEMY_DATABASE_URI", "mysql+pymysql://root:123456@127.0.0.1:3306/paraluxflow")
+    SQLALCHEMY_DATABASE_URI = os.environ.get("SQLALCHEMY_DATABASE_URI", "mysql+pymysql://root:Abc123456!@10.0.4.17:3306/paraluxflow")
+    # SQLALCHEMY_DATABASE_URI = os.environ.get("SQLALCHEMY_DATABASE_URI", "mysql+pymysql://root:123456@127.0.0.1:3306/paraluxflow")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # JWT配置
