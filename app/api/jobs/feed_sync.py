@@ -25,9 +25,16 @@ feed_sync_jobs_bp = Blueprint("feed_sync_jobs", __name__)
 def pending_feeds():
     """获取待同步的Feed列表
     
+    改进逻辑:
+    1. 30分钟内成功过的不再获取
+    2. 连续失败20次的源自动关闭
+    3. 失败次数越少的优先级越高
+    
     Args:
         limit: 获取数量，默认1
         crawler_id: 爬虫标识，可选
+        skip_recent_success: 是否跳过最近成功的，默认True
+        success_interval_minutes: 成功间隔分钟数，默认30
     
     Returns:
         待同步Feed列表
@@ -35,24 +42,43 @@ def pending_feeds():
     try:
         # 获取请求参数
         limit = request.args.get("limit", 1, type=int)
+        skip_recent_success = request.args.get("skip_recent_success", True, type=bool)
+        success_interval_minutes = request.args.get("success_interval_minutes", 30, type=int)
         
         # 获取爬虫标识
         crawler_id = request.headers.get("X-Crawler-ID") or socket.gethostname()
         
-        print(f"[Feed同步] 获取待同步Feed，limit={limit}, crawler_id={crawler_id}")
+        print(f"[Feed同步] 获取待同步Feed，limit={limit}, crawler_id={crawler_id}, skip_recent_success={skip_recent_success}")
         
         # 创建会话和存储库
         db_session = get_db_session()
         feed_repo = RssFeedRepository(db_session)
         
-        # 获取待同步的Feed（按最后同步时间排序，优先同步最久未同步的）
-        feeds = feed_repo.get_feeds_for_sync(limit)
+        # 首先处理连续失败过多的Feed（自动关闭）
+        disabled_feeds = feed_repo.auto_disable_failed_feeds(max_failures=20)
+        if disabled_feeds:
+            print(f"[Feed同步] 自动关闭了 {len(disabled_feeds)} 个连续失败的Feed")
+            logger.info(f"自动关闭了 {len(disabled_feeds)} 个连续失败的Feed: {[f['id'] for f in disabled_feeds]}")
+        
+        # 获取待同步的Feed（按改进的逻辑筛选）
+        feeds = feed_repo.get_feeds_for_sync_improved(
+            limit=limit,
+            skip_recent_success=skip_recent_success,
+            success_interval_minutes=success_interval_minutes
+        )
         
         print(f"[Feed同步] 找到 {len(feeds)} 个待同步Feed")
+        
+        # 为每个Feed添加优先级信息
+        for feed in feeds:
+            print(f"[Feed同步] Feed {feed['id']}: 连续失败{feed.get('consecutive_failures', 0)}次, "
+                  f"优先级{feed.get('sync_priority', 0)}, "
+                  f"最后成功: {feed.get('last_successful_sync_at', '从未')}")
         
         return success_response({
             "feeds": feeds,
             "crawler_id": crawler_id,
+            "disabled_feeds_count": len(disabled_feeds) if disabled_feeds else 0,
             "timestamp": datetime.now().isoformat()
         })
     except Exception as e:
@@ -102,16 +128,25 @@ def claim_feed():
         if not feed.get("is_active", False):
             return error_response(PARAMETER_ERROR, "Feed未激活")
         
+        # 检查是否被连续失败过多次关闭
+        consecutive_failures = feed.get("consecutive_failures", 0)
+        if consecutive_failures >= 20:
+            # 自动关闭该Feed
+            feed_repo.update_feed_status(feed_id, False)
+            logger.warning(f"Feed {feed_id} 连续失败{consecutive_failures}次，已自动关闭")
+            return error_response(PARAMETER_ERROR, f"Feed连续失败{consecutive_failures}次，已被自动关闭")
+        
         # 标记Feed正在同步（更新last_sync_started_at字段）
         update_result = feed_repo.mark_feed_syncing(feed_id, crawler_id)
         if not update_result:
-            return error_response(PARAMETER_ERROR, "标记Feed同步状态失败")
+            return error_response(PARAMETER_ERROR, "标记Feed同步状态失败，可能已被其他爬虫认领")
         
         print(f"[Feed同步] 成功认领Feed: {feed_id}")
         
         return success_response({
             "feed": feed,
             "crawler_id": crawler_id,
+            "consecutive_failures": consecutive_failures,
             "claimed_at": datetime.now().isoformat()
         })
     except Exception as e:
@@ -137,6 +172,7 @@ def submit_feed_result():
                 }
             ],
             "error_message": "错误信息",  // 失败时的错误信息
+            "error_type": "network_error", // 错误类型
             "fetch_time": 5.2,  // 获取耗时
             "parse_time": 1.1,   // 解析耗时
             "total_time": 6.3,   // 总耗时
@@ -223,7 +259,7 @@ def submit_feed_result():
                         print(f"[Feed同步] 插入文章失败")
                         status = 2  # 标记为失败
             
-            # 更新Feed同步状态
+            # 更新Feed同步状态（改进的逻辑）
             feed_update_data = {
                 "last_sync_status": status,
                 "last_sync_at": datetime.now(),
@@ -231,12 +267,39 @@ def submit_feed_result():
             }
             
             if status == 1:
-                feed_update_data["last_sync_error"] = None
-                feed_update_data["sync_success_count"] = data.get("new_articles", new_articles_count)
+                # 成功时
+                feed_update_data.update({
+                    "last_successful_sync_at": datetime.now(),
+                    "consecutive_failures": 0,  # 重置连续失败次数
+                    "last_sync_error": None,
+                    "sync_success_count": data.get("new_articles", new_articles_count),
+                    "total_sync_success": 1  # 增加成功次数（在仓库中处理）
+                })
             else:
-                feed_update_data["last_sync_error"] = data.get("error_message", "同步失败")
+                # 失败时
+                error_message = data.get("error_message", "同步失败")
+                error_type = data.get("error_type", "unknown")
+                
+                feed_update_data.update({
+                    "last_sync_error": error_message,
+                    "error_type": error_type,
+                    "consecutive_failures_increment": 1,  # 增加连续失败次数（在仓库中处理）
+                    "total_sync_failures": 1  # 增加失败次数（在仓库中处理）
+                })
             
-            feed_repo.update_feed_sync_status(feed_id, feed_update_data)
+            # 执行更新
+            feed_repo.update_feed_sync_status_improved(feed_id, feed_update_data)
+            
+            # 获取更新后的Feed信息，用于日志记录
+            err, updated_feed = feed_repo.get_feed_by_id(feed_id)
+            consecutive_failures = updated_feed.get("consecutive_failures", 0) if not err else 0
+            
+            # 检查是否需要自动关闭Feed
+            auto_disabled = False
+            if status == 2 and consecutive_failures >= 20:
+                feed_repo.update_feed_status(feed_id, False)
+                auto_disabled = True
+                logger.warning(f"Feed {feed_id} 连续失败{consecutive_failures}次，已自动关闭")
             
             # 记录同步日志
             log_data = {
@@ -261,22 +324,34 @@ def submit_feed_result():
                     "crawler_ip": data.get("crawler_ip"),
                     "user_agent": data.get("user_agent"),
                     "memory_usage": data.get("memory_usage"),
-                    "cpu_usage": data.get("cpu_usage")
+                    "cpu_usage": data.get("cpu_usage"),
+                    "error_type": data.get("error_type"),
+                    "consecutive_failures": consecutive_failures,
+                    "auto_disabled": auto_disabled
                 }
             }
             
             # 创建日志记录
-            
             sync_log_repo.create_single_feed_log(log_data)
             
-            print(f"[Feed同步] Feed {feed_id} 同步完成，新增 {new_articles_count} 篇文章")
+            result_message = "同步完成"
+            if status == 1:
+                result_message = f"同步成功，新增 {new_articles_count} 篇文章"
+            elif auto_disabled:
+                result_message = f"同步失败，连续失败{consecutive_failures}次，Feed已被自动关闭"
+            else:
+                result_message = f"同步失败，连续失败{consecutive_failures}次"
+            
+            print(f"[Feed同步] Feed {feed_id} {result_message}")
             
             return success_response({
                 "sync_id": sync_id,
                 "feed_id": feed_id,
                 "status": status,
                 "new_articles": new_articles_count,
-                "message": "同步完成" if status == 1 else "同步失败"
+                "consecutive_failures": consecutive_failures,
+                "auto_disabled": auto_disabled,
+                "message": result_message
             })
             
         except Exception as e:
@@ -286,7 +361,8 @@ def submit_feed_result():
                     "last_sync_status": 2,
                     "last_sync_at": datetime.now(),
                     "last_sync_error": f"处理异常: {str(e)}",
-                    "last_sync_crawler_id": None
+                    "last_sync_crawler_id": None,
+                    "consecutive_failures_increment": 1
                 })
             except:
                 pass
@@ -316,10 +392,51 @@ def get_feed_sync_stats():
             "pending_feeds": feed_repo.count_pending_sync_feeds(),
             "syncing_feeds": feed_repo.count_syncing_feeds(),
             "recent_success": sync_log_repo.count_recent_successful_syncs(),
-            "recent_failures": sync_log_repo.count_recent_failed_syncs()
+            "recent_failures": sync_log_repo.count_recent_failed_syncs(),
+            # 新增统计
+            "feeds_near_disable": feed_repo.count_feeds_near_disable(threshold=15),  # 连续失败15次以上的
+            "recently_disabled_feeds": feed_repo.count_recently_disabled_feeds(hours=24),  # 24小时内被关闭的
+            "high_failure_feeds": feed_repo.count_high_failure_feeds(min_failures=10)  # 连续失败10次以上的
         }
         
         return success_response(stats)
     except Exception as e:
         logger.error(f"获取Feed同步统计失败: {str(e)}")
         return error_response(PARAMETER_ERROR, f"获取Feed同步统计失败: {str(e)}")
+
+@feed_sync_jobs_bp.route("/reset_feed_failures", methods=["POST"])
+@app_key_required
+def reset_feed_failures():
+    """重置Feed的失败计数（管理员操作）
+    
+    请求参数:
+        {
+            "feed_id": "feed123",  // 可选，如果不提供则重置所有
+            "reactivate": true     // 是否重新激活被关闭的Feed
+        }
+    
+    Returns:
+        重置结果
+    """
+    try:
+        data = request.get_json() or {}
+        feed_id = data.get("feed_id")
+        reactivate = data.get("reactivate", False)
+        
+        # 创建会话和存储库
+        db_session = get_db_session()
+        feed_repo = RssFeedRepository(db_session)
+        
+        if feed_id:
+            # 重置特定Feed
+            result = feed_repo.reset_feed_failures(feed_id, reactivate)
+            print(f"[Feed同步] 重置Feed {feed_id} 的失败计数")
+        else:
+            # 重置所有Feed
+            result = feed_repo.reset_all_feed_failures(reactivate)
+            print(f"[Feed同步] 重置所有Feed的失败计数")
+        
+        return success_response(result)
+    except Exception as e:
+        logger.error(f"重置Feed失败计数失败: {str(e)}")
+        return error_response(PARAMETER_ERROR, f"重置Feed失败计数失败: {str(e)}")

@@ -448,6 +448,420 @@ class RssFeedRepository:
             return 4  # 超过6小时，较低优先级
         else:
             return 5  # 6小时内，低优先级
+        
+    def auto_disable_failed_feeds(self, max_failures: int = 20) -> List[Dict[str, Any]]:
+        """自动关闭连续失败过多的Feed
+        
+        Args:
+            max_failures: 最大失败次数
+            
+        Returns:
+            被关闭的Feed列表
+        """
+        try:
+            # 查找连续失败过多的激活Feed
+            failed_feeds = self.db.query(RssFeed).filter(
+                RssFeed.is_active == True,
+                RssFeed.consecutive_failures >= max_failures
+            ).all()
+            
+            disabled_feeds = []
+            for feed in failed_feeds:
+                # 关闭Feed
+                feed.is_active = False
+                # 如果数据库模型中有这些字段，则设置它们
+                if hasattr(feed, 'disabled_at'):
+                    feed.disabled_at = datetime.now()
+                if hasattr(feed, 'disabled_reason'):
+                    feed.disabled_reason = f"连续失败{feed.consecutive_failures}次自动关闭"
+                if hasattr(feed, 'auto_disabled'):
+                    feed.auto_disabled = True
+                if hasattr(feed, 'health_status'):
+                    feed.health_status = "disabled"
+                
+                disabled_feeds.append({
+                    "id": feed.id,
+                    "title": feed.title,
+                    "consecutive_failures": feed.consecutive_failures,
+                    "last_sync_error": getattr(feed, 'last_sync_error', None),
+                    "disabled_at": datetime.now().isoformat()
+                })
+            
+            if disabled_feeds:
+                self.db.commit()
+                logger.info(f"自动关闭了 {len(disabled_feeds)} 个连续失败的Feed")
+            
+            return disabled_feeds
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"自动关闭失败Feed失败: {str(e)}")
+            return []
+
+    def get_feeds_for_sync_improved(
+        self, 
+        limit: int = 10, 
+        skip_recent_success: bool = True,
+        success_interval_minutes: int = 30
+    ) -> List[Dict[str, Any]]:
+        """获取待同步的Feed列表 - 改进版本
+        
+        逻辑改进：
+        1. 30分钟内成功过的不再获取
+        2. 连续失败20次的源已被自动关闭
+        3. 按失败次数优先级排序（失败少的优先）
+        
+        Args:
+            limit: 获取数量
+            skip_recent_success: 是否跳过最近成功的
+            success_interval_minutes: 成功间隔分钟数
+            
+        Returns:
+            待同步Feed列表，按优先级排序
+        """
+        try:
+            # 计算时间阈值
+            success_threshold = datetime.now() - timedelta(minutes=success_interval_minutes)
+            sync_lock_threshold = datetime.now() - timedelta(minutes=30)  # 同步锁定超时时间
+            
+            query = self.db.query(RssFeed).filter(
+                RssFeed.is_active == True,
+                RssFeed.consecutive_failures < 20,  # 排除连续失败过多的
+                # 没有被其他爬虫锁定，或者锁定时间超过30分钟（防止死锁）
+                or_(
+                    RssFeed.last_sync_crawler_id.is_(None),
+                    RssFeed.last_sync_started_at < sync_lock_threshold
+                )
+            )
+            
+            # 如果跳过最近成功的
+            if skip_recent_success:
+                # 检查字段是否存在
+                if hasattr(RssFeed, 'last_successful_sync_at'):
+                    query = query.filter(
+                        or_(
+                            RssFeed.last_successful_sync_at.is_(None),  # 从未成功过
+                            RssFeed.last_successful_sync_at < success_threshold  # 超过指定时间未成功
+                        )
+                    )
+                else:
+                    # 如果没有 last_successful_sync_at 字段，使用 last_successful_fetch_at
+                    query = query.filter(
+                        or_(
+                            RssFeed.last_successful_fetch_at.is_(None),
+                            RssFeed.last_successful_fetch_at < success_threshold
+                        )
+                    )
+            
+            # 优先级排序：
+            # 1. 从未同步过的（最高优先级）
+            # 2. 按连续失败次数升序（失败少的优先）
+            # 3. 按最后同步时间升序（最久未同步的优先）
+            query = query.order_by(
+                case(
+                    (RssFeed.last_sync_at.is_(None), 0),  # 从未同步过的优先级最高
+                    else_=1
+                ),
+                RssFeed.consecutive_failures.asc(),  # 失败次数少的优先
+                func.isnull(RssFeed.last_sync_at).desc(),  # NULL值排在前面
+                RssFeed.last_sync_at.asc()  # 最久未同步的优先
+            ).limit(limit)
+            
+            feeds = []
+            for feed in query.all():
+                feed_dict = self._feed_to_dict(feed)
+                # 添加同步相关信息
+                feed_dict.update({
+                    "last_sync_at": feed.last_sync_at.isoformat() if feed.last_sync_at else None,
+                    "last_sync_status": feed.last_sync_status,
+                    "last_sync_error": feed.last_sync_error,
+                    "last_successful_sync_at": getattr(feed, 'last_successful_sync_at', None),
+                    "consecutive_failures": feed.consecutive_failures,
+                    "sync_priority": self._calculate_sync_priority_improved(feed),
+                    "estimated_next_sync": self._estimate_next_sync_time(feed, success_interval_minutes)
+                })
+                feeds.append(feed_dict)
+            
+            return feeds
+        except Exception as e:
+            logger.error(f"获取待同步Feed失败: {str(e)}")
+            return []
+
+    def update_feed_sync_status_improved(self, feed_id: str, update_data: Dict[str, Any]) -> bool:
+        """更新Feed同步状态 - 改进版本
+        
+        Args:
+            feed_id: Feed ID
+            update_data: 更新数据，支持特殊操作：
+                - consecutive_failures_increment: 增加连续失败次数
+                - total_sync_success: 增加成功次数
+                - total_sync_failures: 增加失败次数
+            
+        Returns:
+            是否成功
+        """
+        try:
+            feed = self.db.query(RssFeed).filter(RssFeed.id == feed_id).first()
+            if not feed:
+                return False
+            
+            # 处理特殊操作
+            if "consecutive_failures_increment" in update_data:
+                increment = update_data.pop("consecutive_failures_increment")
+                feed.consecutive_failures = (feed.consecutive_failures or 0) + increment
+            
+            if "total_sync_success" in update_data:
+                increment = update_data.pop("total_sync_success")
+                # 检查字段是否存在
+                if hasattr(feed, 'total_sync_success_count'):
+                    feed.total_sync_success_count = (feed.total_sync_success_count or 0) + increment
+            
+            if "total_sync_failures" in update_data:
+                increment = update_data.pop("total_sync_failures")
+                # 检查字段是否存在
+                if hasattr(feed, 'total_sync_failure_count'):
+                    feed.total_sync_failure_count = (feed.total_sync_failure_count or 0) + increment
+            
+            # 更新其他字段
+            for key, value in update_data.items():
+                if hasattr(feed, key):
+                    setattr(feed, key, value)
+            
+            # 更新健康状态（如果有相关方法）
+            if hasattr(feed, 'update_health_status'):
+                feed.update_health_status()
+            
+            # 检查是否需要自动关闭
+            if feed.consecutive_failures >= 20:
+                feed.is_active = False
+                if hasattr(feed, 'disabled_at'):
+                    feed.disabled_at = datetime.now()
+                if hasattr(feed, 'disabled_reason'):
+                    feed.disabled_reason = f"连续失败{feed.consecutive_failures}次自动关闭"
+                if hasattr(feed, 'auto_disabled'):
+                    feed.auto_disabled = True
+                if hasattr(feed, 'health_status'):
+                    feed.health_status = "disabled"
+            
+            self.db.commit()
+            return True
+        except Exception as e:
+            logger.error(f"更新Feed同步状态失败: {str(e)}")
+            self.db.rollback()
+            return False
+
+    def count_feeds_near_disable(self, threshold: int = 15) -> int:
+        """统计接近被关闭的Feed数量（连续失败次数接近阈值）"""
+        try:
+            return self.db.query(RssFeed).filter(
+                RssFeed.is_active == True,
+                RssFeed.consecutive_failures >= threshold,
+                RssFeed.consecutive_failures < 20
+            ).count()
+        except Exception as e:
+            logger.error(f"统计接近关闭的Feed数量失败: {str(e)}")
+            return 0
+
+    def count_recently_disabled_feeds(self, hours: int = 24) -> int:
+        """统计最近被关闭的Feed数量"""
+        try:
+            since_time = datetime.now() - timedelta(hours=hours)
+            # 检查字段是否存在
+            if hasattr(RssFeed, 'disabled_at'):
+                return self.db.query(RssFeed).filter(
+                    RssFeed.is_active == False,
+                    RssFeed.disabled_at >= since_time
+                ).count()
+            else:
+                # 如果没有 disabled_at 字段，返回0
+                return 0
+        except Exception as e:
+            logger.error(f"统计最近被关闭的Feed数量失败: {str(e)}")
+            return 0
+
+    def count_high_failure_feeds(self, min_failures: int = 10) -> int:
+        """统计高失败率的Feed数量"""
+        try:
+            return self.db.query(RssFeed).filter(
+                RssFeed.is_active == True,
+                RssFeed.consecutive_failures >= min_failures
+            ).count()
+        except Exception as e:
+            logger.error(f"统计高失败率Feed数量失败: {str(e)}")
+            return 0
+
+    def reset_feed_failures(self, feed_id: str, reactivate: bool = False) -> Dict[str, Any]:
+        """重置特定Feed的失败计数
+        
+        Args:
+            feed_id: Feed ID
+            reactivate: 是否重新激活Feed
+            
+        Returns:
+            重置结果
+        """
+        try:
+            feed = self.db.query(RssFeed).filter(RssFeed.id == feed_id).first()
+            if not feed:
+                raise Exception(f"未找到Feed: {feed_id}")
+            
+            old_failures = feed.consecutive_failures
+            was_active = feed.is_active
+            
+            # 重置失败计数
+            feed.consecutive_failures = 0
+            if hasattr(feed, 'last_sync_error'):
+                feed.last_sync_error = None
+            if hasattr(feed, 'error_type'):
+                feed.error_type = None
+            
+            # 如果需要重新激活
+            if reactivate and not feed.is_active:
+                feed.is_active = True
+                if hasattr(feed, 'disabled_at'):
+                    feed.disabled_at = None
+                if hasattr(feed, 'disabled_reason'):
+                    feed.disabled_reason = None
+                if hasattr(feed, 'auto_disabled'):
+                    feed.auto_disabled = False
+            
+            self.db.commit()
+            
+            return {
+                "feed_id": feed_id,
+                "old_failures": old_failures,
+                "new_failures": 0,
+                "was_active": was_active,
+                "is_active": feed.is_active,
+                "reactivated": reactivate and not was_active
+            }
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"重置Feed失败计数失败: {str(e)}")
+            raise
+
+    def reset_all_feed_failures(self, reactivate: bool = False) -> Dict[str, Any]:
+        """重置所有Feed的失败计数
+        
+        Args:
+            reactivate: 是否重新激活被关闭的Feed
+            
+        Returns:
+            重置结果
+        """
+        try:
+            # 统计重置前的数据
+            total_feeds = self.db.query(RssFeed).count()
+            high_failure_feeds = self.db.query(RssFeed).filter(
+                RssFeed.consecutive_failures > 0
+            ).count()
+            disabled_feeds = self.db.query(RssFeed).filter(
+                RssFeed.is_active == False
+            ).count()
+            
+            # 重置所有Feed的失败计数
+            update_data = {RssFeed.consecutive_failures: 0}
+            if hasattr(RssFeed, 'last_sync_error'):
+                update_data[RssFeed.last_sync_error] = None
+            if hasattr(RssFeed, 'error_type'):
+                update_data[RssFeed.error_type] = None
+                
+            self.db.query(RssFeed).update(update_data)
+            
+            reactivated_count = 0
+            if reactivate:
+                # 重新激活所有被关闭的Feed
+                reactivate_data = {RssFeed.is_active: True}
+                if hasattr(RssFeed, 'disabled_at'):
+                    reactivate_data[RssFeed.disabled_at] = None
+                if hasattr(RssFeed, 'disabled_reason'):
+                    reactivate_data[RssFeed.disabled_reason] = None
+                if hasattr(RssFeed, 'auto_disabled'):
+                    reactivate_data[RssFeed.auto_disabled] = False
+                    
+                result = self.db.query(RssFeed).filter(
+                    RssFeed.is_active == False
+                ).update(reactivate_data)
+                reactivated_count = result
+            
+            self.db.commit()
+            
+            return {
+                "total_feeds": total_feeds,
+                "reset_failure_count": high_failure_feeds,
+                "disabled_feeds": disabled_feeds,
+                "reactivated_count": reactivated_count,
+                "operation_time": datetime.now().isoformat()
+            }
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"重置所有Feed失败计数失败: {str(e)}")
+            raise
+
+    def _calculate_sync_priority_improved(self, feed) -> int:
+        """计算Feed同步优先级（数字越小优先级越高） - 改进版本
+        
+        主要考虑因素：
+        1. 连续失败次数（失败少的优先级高）
+        2. 最后同步时间（久未同步的优先级高）
+        3. 是否从未同步过（最高优先级）
+        
+        Args:
+            feed: Feed对象
+            
+        Returns:
+            优先级数字（0-100，越小优先级越高）
+        """
+        base_priority = 0
+        
+        # 从未同步过，最高优先级
+        if not feed.last_sync_at:
+            return 0
+        
+        # 连续失败次数影响优先级
+        failure_penalty = min(feed.consecutive_failures * 2, 40)  # 最多40分扣除
+        base_priority += failure_penalty
+        
+        # 最后同步时间影响优先级
+        hours_since_sync = (datetime.now() - feed.last_sync_at).total_seconds() / 3600
+        if hours_since_sync > 24:
+            base_priority += 5  # 超过24小时，加5分
+        elif hours_since_sync > 12:
+            base_priority += 10  # 超过12小时，加10分
+        elif hours_since_sync > 6:
+            base_priority += 15  # 超过6小时，加15分
+        elif hours_since_sync > 1:
+            base_priority += 20  # 超过1小时，加20分
+        else:
+            base_priority += 30  # 1小时内，加30分（低优先级）
+        
+        return min(base_priority, 100)  # 最大不超过100
+
+    def _estimate_next_sync_time(self, feed, success_interval_minutes: int) -> Optional[str]:
+        """估算下次同步时间
+        
+        Args:
+            feed: Feed对象
+            success_interval_minutes: 成功间隔分钟数
+            
+        Returns:
+            估算的下次同步时间（ISO格式字符串）
+        """
+        # 检查字段是否存在
+        last_success_time = None
+        if hasattr(feed, 'last_successful_sync_at') and feed.last_successful_sync_at:
+            last_success_time = feed.last_successful_sync_at
+        elif hasattr(feed, 'last_successful_fetch_at') and feed.last_successful_fetch_at:
+            last_success_time = feed.last_successful_fetch_at
+        
+        if not last_success_time:
+            return "立即可同步"
+        
+        next_sync = last_success_time + timedelta(minutes=success_interval_minutes)
+        
+        if next_sync <= datetime.now():
+            return "立即可同步"
+        else:
+            return next_sync.isoformat()
 
     def _feed_to_dict(self, feed: RssFeed) -> Dict[str, Any]:
         """将Feed对象转换为字典

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any, Dict
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, JSON, Float, func
 
@@ -7,7 +8,7 @@ from app.core.security import generate_uuid
 
 
 class RssFeed(db.Model):
-    """RSS Feed模型"""
+    """RSS Feed模型 - 改进版本"""
     __tablename__ = "rss_feeds"
 
     id = Column(String(32), primary_key=True, default=generate_uuid)
@@ -39,12 +40,12 @@ class RssFeed(db.Model):
     
     # 代理相关字段
     use_proxy = Column(Boolean, default=False, comment="是否使用代理")
-
     
     # 更多统计
     avg_article_length = Column(Integer, comment="平均文章长度(字符)")
     last_new_article_at = Column(DateTime, comment="最近新文章时间")
 
+    # 同步相关字段（原有）
     last_sync_at = Column(DateTime, nullable=True, comment="最后同步时间")
     last_sync_status = Column(Integer, default=0, comment="最后同步状态: 0=未同步, 1=成功, 2=失败")
     last_sync_error = Column(Text, nullable=True, comment="最后同步错误信息")
@@ -53,8 +54,132 @@ class RssFeed(db.Model):
     sync_success_count = Column(Integer, default=0, comment="同步成功次数")
     sync_failure_count = Column(Integer, default=0, comment="同步失败次数")
 
+    # ========== 新增字段 ==========
+    # 成功同步相关
+    last_successful_sync_at = Column(DateTime, nullable=True, comment="最后成功同步时间")
+    total_sync_success_count = Column(Integer, default=0, comment="总成功同步次数")
+    total_sync_failure_count = Column(Integer, default=0, comment="总失败同步次数")
+    
+    # 失败管理相关
+    max_consecutive_failures = Column(Integer, default=20, comment="最大连续失败次数阈值")
+    error_type = Column(String(50), nullable=True, comment="最后错误类型")
+    
+    # 自动关闭相关
+    disabled_at = Column(DateTime, nullable=True, comment="关闭时间")
+    disabled_reason = Column(String(255), nullable=True, comment="关闭原因")
+    auto_disabled = Column(Boolean, default=False, comment="是否为自动关闭")
+    
+    # 性能统计
+    avg_sync_time = Column(Float, nullable=True, comment="平均同步耗时(秒)")
+    avg_articles_per_sync = Column(Float, nullable=True, comment="平均每次同步文章数")
+    
+    # 质量评估
+    content_quality_score = Column(Float, nullable=True, comment="内容质量评分(0-100)")
+    reliability_score = Column(Float, nullable=True, comment="可靠性评分(0-100)")
+    
+    # 监控相关
+    last_health_check_at = Column(DateTime, nullable=True, comment="最后健康检查时间")
+    health_status = Column(String(20), default="unknown", comment="健康状态: healthy, warning, critical, unknown")
+    
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def calculate_reliability_score(self) -> float:
+        """计算可靠性评分
+        
+        Returns:
+            0-100的评分，100表示最可靠
+        """
+        if not self.total_sync_success_count and not self.total_sync_failure_count:
+            return 50.0  # 没有数据时返回中等分数
+        
+        total_attempts = self.total_sync_success_count + self.total_sync_failure_count
+        if total_attempts == 0:
+            return 50.0
+        
+        success_rate = self.total_sync_success_count / total_attempts
+        
+        # 基础分数
+        base_score = success_rate * 70  # 成功率占70%
+        
+        # 连续失败惩罚
+        failure_penalty = min(self.consecutive_failures * 2, 20)  # 最多扣20分
+        
+        # 最近活跃度奖励
+        activity_bonus = 0
+        if self.last_successful_sync_at:
+            days_since_success = (datetime.now() - self.last_successful_sync_at).days
+            if days_since_success <= 1:
+                activity_bonus = 10
+            elif days_since_success <= 7:
+                activity_bonus = 5
+        
+        final_score = max(0, min(100, base_score - failure_penalty + activity_bonus))
+        return round(final_score, 1)
+
+    def update_health_status(self):
+        """更新健康状态"""
+        now = datetime.now()
+        
+        # 更新健康检查时间
+        self.last_health_check_at = now
+        
+        # 根据各项指标判断健康状态
+        if not self.is_active:
+            self.health_status = "disabled"
+        elif self.consecutive_failures >= 15:
+            self.health_status = "critical"
+        elif self.consecutive_failures >= 10:
+            self.health_status = "warning"
+        elif self.consecutive_failures >= 5:
+            self.health_status = "degraded"
+        else:
+            # 检查最近是否有成功同步
+            if self.last_successful_sync_at:
+                hours_since_success = (now - self.last_successful_sync_at).total_seconds() / 3600
+                if hours_since_success <= 24:
+                    self.health_status = "healthy"
+                elif hours_since_success <= 72:
+                    self.health_status = "warning"
+                else:
+                    self.health_status = "degraded"
+            else:
+                self.health_status = "unknown"
+
+    def should_auto_disable(self) -> bool:
+        """判断是否应该自动关闭
+        
+        Returns:
+            是否应该自动关闭
+        """
+        return (
+            self.is_active and 
+            self.consecutive_failures >= self.max_consecutive_failures
+        )
+
+    def get_sync_statistics(self) -> Dict[str, Any]:
+        """获取同步统计信息
+        
+        Returns:
+            统计信息字典
+        """
+        total_attempts = self.total_sync_success_count + self.total_sync_failure_count
+        success_rate = (
+            self.total_sync_success_count / total_attempts * 100 
+            if total_attempts > 0 else 0
+        )
+        
+        return {
+            "total_attempts": total_attempts,
+            "success_count": self.total_sync_success_count,
+            "failure_count": self.total_sync_failure_count,
+            "success_rate": round(success_rate, 2),
+            "consecutive_failures": self.consecutive_failures,
+            "reliability_score": self.calculate_reliability_score(),
+            "health_status": self.health_status,
+            "avg_sync_time": self.avg_sync_time,
+            "avg_articles_per_sync": self.avg_articles_per_sync
+        }
 
 class RssFeedCategory(db.Model):
     """RSS Feed分类模型"""
