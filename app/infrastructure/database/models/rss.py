@@ -45,6 +45,14 @@ class RssFeed(db.Model):
     avg_article_length = Column(Integer, comment="平均文章长度(字符)")
     last_new_article_at = Column(DateTime, comment="最近新文章时间")
 
+    last_sync_at = Column(DateTime, nullable=True, comment="最后同步时间")
+    last_sync_status = Column(Integer, default=0, comment="最后同步状态: 0=未同步, 1=成功, 2=失败")
+    last_sync_error = Column(Text, nullable=True, comment="最后同步错误信息")
+    last_sync_started_at = Column(DateTime, nullable=True, comment="最后同步开始时间")
+    last_sync_crawler_id = Column(String(255), nullable=True, comment="当前同步的爬虫ID")
+    sync_success_count = Column(Integer, default=0, comment="同步成功次数")
+    sync_failure_count = Column(Integer, default=0, comment="同步失败次数")
+
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

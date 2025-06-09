@@ -1,7 +1,7 @@
 # app/infrastructure/database/repositories/rss_sync_log_repository.py
 """RSS同步日志仓库"""
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 
 from sqlalchemy import desc
@@ -174,6 +174,113 @@ class RssSyncLogRepository:
                 "filters_applied": filters or {},
                 "error": str(e)
             }
+        
+    def create_single_feed_log(self, log_data: Dict[str, Any]) -> Dict[str, Any]:
+        """创建单个Feed的同步日志记录
+        
+        Args:
+            log_data: 日志数据
+            
+        Returns:
+            创建的日志记录
+        """
+        try:
+            # 创建日志记录
+            log = RssSyncLog(
+                sync_id=log_data["sync_id"],
+                total_feeds=1,  # 单个Feed
+                synced_feeds=1 if log_data["status"] == 1 else 0,
+                failed_feeds=1 if log_data["status"] == 2 else 0,
+                total_articles=log_data.get("new_articles", 0),
+                status=log_data["status"],
+                start_time=log_data["started_at"],
+                end_time=log_data["ended_at"],
+                total_time=log_data.get("total_time"),
+                triggered_by=log_data.get("triggered_by", "crawler"),
+                error_message=log_data.get("error_message"),
+                details={
+                    "type": "single_feed",
+                    "feed_id": log_data["feed_id"],
+                    "crawler_id": log_data["crawler_id"],
+                    "feed_url": log_data.get("feed_url"),
+                    "response_status": log_data.get("response_status"),
+                    "content_length": log_data.get("content_length"),
+                    "entries_found": log_data.get("entries_found"),
+                    "fetch_time": log_data.get("fetch_time"),
+                    "parse_time": log_data.get("parse_time"),
+                    "performance": log_data.get("details", {})
+                }
+            )
+            
+            self.db.add(log)
+            self.db.commit()
+            self.db.refresh(log)
+            
+            return self._log_to_dict(log)
+        except Exception as e:
+            logger.error(f"创建Feed同步日志失败: {str(e)}")
+            self.db.rollback()
+            return {}
+
+    def count_recent_successful_syncs(self, hours: int = 24) -> int:
+        """统计最近成功的同步数量
+        
+        Args:
+            hours: 时间范围（小时）
+            
+        Returns:
+            成功同步数量
+        """
+        try:
+            since_time = datetime.now() - timedelta(hours=hours)
+            return self.db.query(RssSyncLog).filter(
+                RssSyncLog.status == 1,
+                RssSyncLog.start_time >= since_time
+            ).count()
+        except Exception as e:
+            logger.error(f"统计成功同步数量失败: {str(e)}")
+            return 0
+
+    def count_recent_failed_syncs(self, hours: int = 24) -> int:
+        """统计最近失败的同步数量
+        
+        Args:
+            hours: 时间范围（小时）
+            
+        Returns:
+            失败同步数量
+        """
+        try:
+            since_time = datetime.now() - timedelta(hours=hours)
+            return self.db.query(RssSyncLog).filter(
+                RssSyncLog.status == 2,
+                RssSyncLog.start_time >= since_time
+            ).count()
+        except Exception as e:
+            logger.error(f"统计失败同步数量失败: {str(e)}")
+            return 0
+
+    def get_feed_sync_history(self, feed_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """获取特定Feed的同步历史
+        
+        Args:
+            feed_id: Feed ID
+            limit: 返回数量限制
+            
+        Returns:
+            同步历史列表
+        """
+        try:
+            logs = self.db.query(RssSyncLog).filter(
+                RssSyncLog.details.contains(f'"feed_id": "{feed_id}"')
+            ).order_by(
+                RssSyncLog.start_time.desc()
+            ).limit(limit).all()
+            
+            return [self._log_to_dict(log) for log in logs]
+        except Exception as e:
+            logger.error(f"获取Feed同步历史失败: {str(e)}")
+            return []
 
     def _log_to_dict(self, log: RssSyncLog) -> Dict[str, Any]:
         """将日志对象转换为字典

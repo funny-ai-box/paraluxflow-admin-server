@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 
-from sqlalchemy import and_, or_, desc
+from sqlalchemy import and_, case, func, or_, desc
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -273,6 +273,181 @@ class RssFeedRepository:
             self.db.rollback()
             logger.error(f"批量更新Feed获取时间失败: {str(e)}")
             return str(e)
+        
+    def get_feeds_for_sync(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """获取待同步的Feed列表
+        
+        Args:
+            limit: 获取数量
+            
+        Returns:
+            待同步Feed列表，按优先级排序
+        """
+        try:
+   
+            
+            # MySQL兼容的查询：使用ISNULL()函数和条件排序
+            query = self.db.query(RssFeed).filter(
+                RssFeed.is_active == True,
+                # 没有被其他爬虫锁定，或者锁定时间超过30分钟（防止死锁）
+                or_(
+                    RssFeed.last_sync_crawler_id.is_(None),
+                    RssFeed.last_sync_started_at < datetime.now() - timedelta(minutes=30)
+                )
+            ).order_by(
+                # 优先级：从未同步过的 > 同步失败的 > 最久未同步的
+                case(
+                    (RssFeed.last_sync_at.is_(None), 0),  # 从未同步过的优先级最高
+                    (RssFeed.last_sync_status == 2, 1),   # 同步失败的次优先
+                    else_=2                               # 其他情况
+                ),
+                # MySQL兼容：NULL值排在前面
+                func.isnull(RssFeed.last_sync_at).desc(),
+                RssFeed.last_sync_at.asc()
+            ).limit(limit)
+            
+            feeds = []
+            for feed in query.all():
+                feed_dict = self._feed_to_dict(feed)
+                # 添加同步相关信息
+                feed_dict.update({
+                    "last_sync_at": feed.last_sync_at.isoformat() if feed.last_sync_at else None,
+                    "last_sync_status": feed.last_sync_status,
+                    "last_sync_error": feed.last_sync_error,
+                    "sync_priority": self._calculate_sync_priority(feed)
+                })
+                feeds.append(feed_dict)
+            
+            return feeds
+        except Exception as e:
+            logger.error(f"获取待同步Feed失败: {str(e)}")
+            return []
+
+    def mark_feed_syncing(self, feed_id: str, crawler_id: str) -> bool:
+        """标记Feed正在同步
+        
+        Args:
+            feed_id: Feed ID
+            crawler_id: 爬虫ID
+            
+        Returns:
+            是否成功
+        """
+        try:
+            feed = self.db.query(RssFeed).filter(RssFeed.id == feed_id).first()
+            if not feed:
+                return False
+            
+            # 检查是否已被其他爬虫锁定
+            if (feed.last_sync_crawler_id and 
+                feed.last_sync_crawler_id != crawler_id and
+                feed.last_sync_started_at and 
+                feed.last_sync_started_at > datetime.now() - timedelta(minutes=30)):
+                logger.warning(f"Feed {feed_id} 已被爬虫 {feed.last_sync_crawler_id} 锁定")
+                return False
+            
+            # 标记为正在同步
+            feed.last_sync_started_at = datetime.now()
+            feed.last_sync_crawler_id = crawler_id
+            
+            self.db.commit()
+            return True
+        except Exception as e:
+            logger.error(f"标记Feed同步状态失败: {str(e)}")
+            self.db.rollback()
+            return False
+
+    def update_feed_sync_status(self, feed_id: str, update_data: Dict[str, Any]) -> bool:
+        """更新Feed同步状态
+        
+        Args:
+            feed_id: Feed ID
+            update_data: 更新数据
+            
+        Returns:
+            是否成功
+        """
+        try:
+            feed = self.db.query(RssFeed).filter(RssFeed.id == feed_id).first()
+            if not feed:
+                return False
+            
+            # 更新字段
+            for key, value in update_data.items():
+                if hasattr(feed, key):
+                    setattr(feed, key, value)
+            
+            self.db.commit()
+            return True
+        except Exception as e:
+            logger.error(f"更新Feed同步状态失败: {str(e)}")
+            self.db.rollback()
+            return False
+
+    def count_active_feeds(self) -> int:
+        """统计激活的Feed数量"""
+        try:
+            return self.db.query(RssFeed).filter(RssFeed.is_active == True).count()
+        except Exception as e:
+            logger.error(f"统计激活Feed数量失败: {str(e)}")
+            return 0
+
+    def count_pending_sync_feeds(self) -> int:
+        """统计待同步的Feed数量"""
+        try:
+            return self.db.query(RssFeed).filter(
+                RssFeed.is_active == True,
+                or_(
+                    RssFeed.last_sync_at.is_(None),  # 从未同步过
+                    RssFeed.last_sync_at < datetime.now() - timedelta(hours=1)  # 超过1小时未同步
+                ),
+                or_(
+                    RssFeed.last_sync_crawler_id.is_(None),
+                    RssFeed.last_sync_started_at < datetime.now() - timedelta(minutes=30)
+                )
+            ).count()
+        except Exception as e:
+            logger.error(f"统计待同步Feed数量失败: {str(e)}")
+            return 0
+
+    def count_syncing_feeds(self) -> int:
+        """统计正在同步的Feed数量"""
+        try:
+            return self.db.query(RssFeed).filter(
+                RssFeed.is_active == True,
+                RssFeed.last_sync_crawler_id.isnot(None),
+                RssFeed.last_sync_started_at > datetime.now() - timedelta(minutes=30)
+            ).count()
+        except Exception as e:
+            logger.error(f"统计正在同步Feed数量失败: {str(e)}")
+            return 0
+
+    def _calculate_sync_priority(self, feed) -> int:
+        """计算Feed同步优先级（数字越小优先级越高）
+        
+        Args:
+            feed: Feed对象
+            
+        Returns:
+            优先级数字
+        """
+        if not feed.last_sync_at:
+            return 0  # 从未同步过，最高优先级
+        
+        if feed.last_sync_status == 2:
+            return 1  # 同步失败，高优先级
+        
+        # 根据最后同步时间计算优先级
+        hours_since_sync = (datetime.now() - feed.last_sync_at).total_seconds() / 3600
+        
+        if hours_since_sync > 24:
+            return 2  # 超过24小时，高优先级
+        elif hours_since_sync > 12:
+            return 3  # 超过12小时，中等优先级
+        elif hours_since_sync > 6:
+            return 4  # 超过6小时，较低优先级
+        else:
+            return 5  # 6小时内，低优先级
 
     def _feed_to_dict(self, feed: RssFeed) -> Dict[str, Any]:
         """将Feed对象转换为字典
