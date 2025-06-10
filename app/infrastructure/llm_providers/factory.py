@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 from app.infrastructure.llm_providers.base import LLMProviderInterface
 from app.infrastructure.llm_providers.openai_provider import OpenLLMProvider
 from app.infrastructure.llm_providers.anthropic_provider import AnthropicProvider
-
+from app.infrastructure.llm_providers.volcengine_provider import VolcengineProvider
 from app.infrastructure.llm_providers.gemini_provider import GeminiProvider
 from app.core.exceptions import APIException
 from app.core.status_codes import EXTERNAL_API_ERROR, PROVIDER_NOT_FOUND
@@ -22,7 +22,7 @@ class LLMProviderFactory:
     PROVIDERS = {
         "openai": OpenLLMProvider,
         "anthropic": AnthropicProvider,
-
+        "volcengine": VolcengineProvider,
         "gemini": GeminiProvider
     }
 
