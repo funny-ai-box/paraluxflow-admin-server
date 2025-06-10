@@ -17,7 +17,7 @@ class VolcengineProvider(LLMProviderInterface):
     def __init__(self):
         """初始化火山引擎提供商"""
         self.client = None
-        self.default_model: str = "doubao-pro-32k"
+        self.default_model: str = "deepseek-r1-250528"
         self.embeddings_model: str = "text-embedding-3-large"  # 根据实际支持的嵌入模型调整
         self.max_retries: int = 3
         self.retry_delay: int = 2
@@ -40,6 +40,7 @@ class VolcengineProvider(LLMProviderInterface):
         """
         try:
             logger.info("Initializing Volcengine ARK client...")
+            print("===================")
 
             # 检查 api_key
             if not api_key:
@@ -273,6 +274,7 @@ class VolcengineProvider(LLMProviderInterface):
                 "temperature": temperature,
                 "top_p": top_p,
             }
+            print(request_params)
             
             # 添加停止序列
             if stop_sequences:
@@ -283,6 +285,7 @@ class VolcengineProvider(LLMProviderInterface):
 
             # 调用火山引擎API
             response = self.client.chat.completions.create(**request_params)
+            print(response)
 
             if not response or not response.choices or not response.choices[0].message:
                 raise APIException("Volcengine API returned an empty or invalid chat completion response.", EXTERNAL_API_ERROR)
@@ -453,7 +456,7 @@ class VolcengineProvider(LLMProviderInterface):
                         "model_type": "chat"
                     },
                     {
-                        "id": "doubao-pro-32k",
+                        "id": "deepseek-r1-250528",
                         "name": "豆包-pro-32k",
                         "description": "专业版大模型，高质量低成本",
                         "context_window": 32768,
@@ -501,7 +504,7 @@ class VolcengineProvider(LLMProviderInterface):
                 # 返回基本的已知模型列表
                 return [
                     {
-                        "id": "doubao-pro-32k",
+                        "id": "deepseek-r1-250528",
                         "name": "豆包-pro-32k",
                         "description": "专业版大模型",
                         "context_window": 32768,

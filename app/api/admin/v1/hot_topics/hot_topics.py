@@ -383,7 +383,7 @@ def get_stats():
         logger.error(f"获取热点话题统计信息失败: {str(e)}")
         return error_response(PARAMETER_ERROR, f"获取热点话题统计信息失败: {str(e)}")
 @hot_topics_bp.route("/aggregate", methods=["POST"])
-@auth_required
+
 def trigger_hot_topic_aggregation():
     """
     手动触发指定日期的热点话题聚合任务

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 
 from sqlalchemy import and_, asc, or_, desc, func
-from sqlalchemy.exc import SQLAlchemyError,IntegrityError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.orm import Session
 from datetime import datetime, date
 from app.infrastructure.database.models.hot_topics import HotTopicPlatform, HotTopicTask, HotTopic, HotTopicLog, UnifiedHotTopic
@@ -43,6 +43,7 @@ class HotTopicTaskRepository:
             self.db.rollback()
             logger.error(f"创建热点爬取任务失败: {str(e)}")
             return str(e), None
+
     def get_task_by_id(self, task_id: str) -> Optional[Dict[str, Any]]:
         """根据任务ID获取任务
         
@@ -58,6 +59,7 @@ class HotTopicTaskRepository:
         except SQLAlchemyError as e:
             logger.error(f"获取热点爬取任务失败, ID={task_id}: {str(e)}")
             return None
+
     def update_task(self, task_id: str, update_data: Dict[str, Any]) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """更新热点爬取任务
         
@@ -240,49 +242,102 @@ class HotTopicRepository:
         """
         self.db = db_session
 
-    def create_topics(self, topics_data: List[Dict[str, Any]]) -> bool:
-        """批量创建热点话题，会处理重复数据"""
+    def upsert_topics(self, topics_data: List[Dict[str, Any]]) -> bool:
+        """批量upsert热点话题，基于稳定哈希避免重复插入，支持更新已有记录
+        
+        Args:
+            topics_data: 话题数据列表，每个包含stable_hash字段
+            
+        Returns:
+            是否操作成功
+        """
         try:
+            logger.info(f"开始upsert {len(topics_data)} 个热点话题")
             
-            logger.info(f"开始创建 {len(topics_data)} 个热点话题")
-            
-            # 获取今天的日期
-            today = date.today()
-            
-            # 批量插入热点话题
             success_count = 0
+            update_count = 0
             error_count = 0
             
             for data in topics_data:
-                # 如果没有提供 topic_date，使用今天的日期
-                if "topic_date" not in data:
-                    data["topic_date"] = today
-                    logger.info(f"未提供话题日期，使用今天: {today}")
+                stable_hash = data.get("stable_hash")
+                topic_date = data.get("topic_date")
+                platform = data.get("platform")
+                
+                if not stable_hash:
+                    logger.error(f"话题数据缺少stable_hash: {data.get('topic_title')}")
+                    error_count += 1
+                    continue
                 
                 try:
-                    # 尝试创建话题
-                    topic = HotTopic(**data)
-                    self.db.add(topic)
-                    self.db.flush()  # 尝试提交但不提交事务
-                    success_count += 1
-                    logger.info(f"成功添加话题: {data.get('topic_title')}")
-                except IntegrityError as e:
-                    # 捕获重复记录错误
-                    self.db.rollback()  # 回滚当前事务
-                    logger.warning(f"话题重复，尝试更新: {data.get('topic_title')}, 错误: {str(e)}")
-
+                    # 查找现有记录
+                    existing_topic = self.db.query(HotTopic).filter(
+                        HotTopic.stable_hash == stable_hash,
+                        HotTopic.topic_date == topic_date,
+                        HotTopic.platform == platform
+                    ).first()
+                    
+                    if existing_topic:
+                        # 更新现有记录
+                        for key, value in data.items():
+                            if hasattr(existing_topic, key) and key not in ['id', 'created_at']:
+                                setattr(existing_topic, key, value)
+                        existing_topic.updated_at = datetime.now()
+                        update_count += 1
+                        logger.debug(f"更新现有话题: {data.get('topic_title')}")
+                    else:
+                        # 创建新记录
+                        topic = HotTopic(**data)
+                        self.db.add(topic)
+                        success_count += 1
+                        logger.debug(f"创建新话题: {data.get('topic_title')}")
+                    
+                    # 每100条记录提交一次，避免事务过大
+                    if (success_count + update_count) % 100 == 0:
+                        self.db.flush()
+                        
                 except Exception as e:
-                    logger.error(f"添加话题失败: {data.get('topic_title')}, 错误: {str(e)}")
+                    logger.error(f"处理话题失败: {data.get('topic_title')}, 错误: {str(e)}")
                     error_count += 1
             
             # 提交所有更改
-            logger.info(f"提交事务，成功: {success_count}, 失败: {error_count}")
             self.db.commit()
-            return success_count > 0
+            logger.info(f"upsert完成 - 新增: {success_count}, 更新: {update_count}, 失败: {error_count}")
+            return (success_count + update_count) > 0
+            
         except Exception as e:
             self.db.rollback()
-            logger.error(f"批量创建热点话题失败: {str(e)}", exc_info=True)
+            logger.error(f"批量upsert热点话题失败: {str(e)}", exc_info=True)
             return False
+
+    def get_topics_by_hashes(self, stable_hashes: List[str], topic_date: Optional[date] = None) -> List[Dict[str, Any]]:
+        """根据稳定哈希列表获取热点话题信息
+        
+        Args:
+            stable_hashes: 稳定哈希列表
+            topic_date: 可选的日期筛选
+            
+        Returns:
+            热点话题字典列表
+        """
+        if not stable_hashes:
+            return []
+        try:
+            query = self.db.query(HotTopic).filter(HotTopic.stable_hash.in_(stable_hashes))
+            
+            if topic_date:
+                query = query.filter(HotTopic.topic_date == topic_date)
+            
+            topics = query.all()
+            return [self._topic_to_dict(topic) for topic in topics]
+        except SQLAlchemyError as e:
+            logger.error(f"根据哈希列表获取热点话题失败: {str(e)}")
+            return []
+
+    def create_topics(self, topics_data: List[Dict[str, Any]]) -> bool:
+        """批量创建热点话题，会处理重复数据（保持向后兼容）"""
+        # 为了向后兼容，保留原方法，但建议使用upsert_topics
+        logger.warning("create_topics方法已废弃，建议使用upsert_topics方法")
+        return self.upsert_topics(topics_data)
 
     def get_topics(self, filters: Dict[str, Any], page: int = 1, per_page: int = 20) -> Dict[str, Any]:
         """获取热点话题列表
@@ -406,12 +461,11 @@ class HotTopicRepository:
             return []
     
     def get_topics_by_ids(self, topic_ids: List[int]) -> List[Dict[str, Any]]:
-        """
-        根据ID列表获取热点话题信息
-
+        """根据ID列表获取热点话题信息（保持向后兼容）
+        
         Args:
             topic_ids: 热点话题ID列表
-
+            
         Returns:
             热点话题字典列表
         """
@@ -449,6 +503,7 @@ class HotTopicRepository:
             "rank_change": topic.rank_change,
             "heat_level": topic.heat_level,
             "topic_date": topic.topic_date.isoformat() if topic.topic_date else None,
+            "stable_hash": topic.stable_hash,  # 添加稳定哈希到返回结果
             "crawler_id": topic.crawler_id,
             "crawl_time": topic.crawl_time.isoformat() if topic.crawl_time else None,
             "status": topic.status,
@@ -587,7 +642,7 @@ class HotTopicLogRepository:
             "created_at": log.created_at.isoformat() if log.created_at else None,
             "updated_at": log.updated_at.isoformat() if log.updated_at else None
         }
-    
+
 
 class UnifiedHotTopicRepository:
     """统一热点话题仓库"""
@@ -608,6 +663,7 @@ class UnifiedHotTopicRepository:
             self.db.rollback()
             logger.error(f"创建统一热点失败: {str(e)}")
             return None
+    
     def get_topic_by_id(self, topic_id: str) -> Optional[Dict[str, Any]]:
         """根据ID获取统一热点
         
@@ -628,6 +684,7 @@ class UnifiedHotTopicRepository:
         except SQLAlchemyError as e:
             logger.error(f"根据ID获取统一热点失败: {str(e)}")
             return None
+    
     def get_latest_unified_topic_date(self) -> Optional[date]:
         """获取存在统一热点的最新日期"""
         try:
@@ -695,9 +752,10 @@ class UnifiedHotTopicRepository:
             "unified_title": topic.unified_title,
             "unified_summary": topic.unified_summary,
             "representative_url": topic.representative_url,
-            "keywords": topic.keywords,  # 添加关键词
-            "related_topic_ids": topic.related_topic_ids, # 保持 JSON
-            "source_platforms": topic.source_platforms, # 保持 JSON
+            "keywords": topic.keywords,
+            "related_topic_hashes": topic.related_topic_hashes,  # 新增稳定哈希字段
+            "related_topic_ids": topic.related_topic_ids,  # 保留原字段作为备用
+            "source_platforms": topic.source_platforms,
             "aggregated_hotness_score": topic.aggregated_hotness_score,
             "topic_count": topic.topic_count,
             "ai_model_used": topic.ai_model_used,
@@ -705,6 +763,8 @@ class UnifiedHotTopicRepository:
             "created_at": topic.created_at.isoformat() if topic.created_at else None,
             "updated_at": topic.updated_at.isoformat() if topic.updated_at else None
         }
+
+
 class HotTopicPlatformRepository:
     """热点平台仓库"""
 

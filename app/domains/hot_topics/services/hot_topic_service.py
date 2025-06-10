@@ -2,6 +2,7 @@
 """热点话题服务实现"""
 import logging
 import uuid
+import hashlib
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -21,6 +22,23 @@ class HotTopicService:
         self.task_repo = task_repo
         self.topic_repo = topic_repo
         self.log_repo = log_repo
+    
+    def _generate_stable_hash(self, title: str, platform: str) -> str:
+        """生成基于标题和平台的稳定哈希值
+        
+        Args:
+            title: 话题标题
+            platform: 平台名称
+            
+        Returns:
+            64位哈希字符串
+        """
+        # 标准化标题（去除特殊字符、转小写）
+        normalized_title = ''.join(c for c in title.lower() if c.isalnum() or c.isspace()).strip()
+        # 创建唯一标识
+        unique_string = f"{platform}:{normalized_title}"
+        # 生成SHA256哈希
+        return hashlib.sha256(unique_string.encode('utf-8')).hexdigest()
     
     def create_task(self, user_id: str, platforms: List[str], schedule_time: Optional[str] = None) -> Dict[str, Any]:
         """创建热点爬取任务
@@ -203,11 +221,18 @@ class HotTopicService:
                 # 准备话题数据
                 topics_to_save = []
                 for idx, topic in enumerate(topics):
+                    title = topic.get("title", "")
+                    if not title:
+                        continue
+                    
+                    # 生成稳定哈希
+                    stable_hash = self._generate_stable_hash(title, platform)
+                    
                     topic_data = {
                         "task_id": task_id,
                         "batch_id": batch_id,
                         "platform": platform,
-                        "topic_title": topic.get("title", ""),
+                        "topic_title": title,
                         "topic_url": topic.get("url", ""),
                         "hot_value": topic.get("hot_value", ""),
                         "topic_description": topic.get("desc", "") or topic.get("excerpt", ""),
@@ -215,18 +240,19 @@ class HotTopicService:
                         "is_new": topic.get("is_new", False),
                         "rank": idx + 1,  # 使用列表索引作为排名
                         "heat_level": self._calculate_heat_level(topic.get("hot_value", "")),
+                        "stable_hash": stable_hash,  # 添加稳定哈希
                         "crawler_id": result_data.get("crawler_id"),
                         "crawl_time": datetime.now(),
                         "topic_date": topic_date,  # 设置话题日期
                         "status": 1  # 有效
                     }
                     topics_to_save.append(topic_data)
-                    logger.info(f"准备保存话题: {topic_data['topic_title']}, 日期: {topic_date}")
+                    logger.info(f"准备保存话题: {title}, 哈希: {stable_hash}, 日期: {topic_date}")
                 
-                # 保存话题数据
+                # 保存话题数据（使用upsert方式）
                 if topics_to_save:
                     logger.info(f"开始保存 {len(topics_to_save)} 个话题到数据库")
-                    save_result = self.topic_repo.create_topics(topics_to_save)
+                    save_result = self.topic_repo.upsert_topics(topics_to_save)
                     logger.info(f"保存话题结果: {'成功' if save_result else '失败'}")
                 else:
                     logger.warning("没有话题需要保存")
@@ -240,7 +266,7 @@ class HotTopicService:
             logger.info(f"任务 {task_id} 结果处理完成")
             return True
         except Exception as e:
-            logger.error(f"处理爬取结果失败: {str(e)}", exc_info=True)  # 添加完整堆栈
+            logger.error(f"处理爬取结果失败: {str(e)}", exc_info=True)
             return False
         
     def get_hot_topics(self, platform: Optional[str] = None, page: int = 1, per_page: int = 20, 

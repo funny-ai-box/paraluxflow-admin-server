@@ -1,6 +1,6 @@
 # app/infrastructure/database/models/hot_topics.py
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, Float, func, Date, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, Float, func, Date, UniqueConstraint, Index
 
 from app.extensions import db
 from app.core.security import generate_uuid
@@ -48,6 +48,9 @@ class HotTopic(db.Model):
     # 新增字段：热点日期
     topic_date = Column(Date, nullable=False, default=func.current_date(), comment="热点日期")
     
+    # 新增：稳定的唯一标识符，用于关联聚合热点
+    stable_hash = Column(String(64), nullable=False, index=True, comment="基于标题和平台生成的稳定哈希值")
+    
     crawler_id = Column(String(255), comment="爬虫标识")
     crawl_time = Column(DateTime, comment="爬取时间")
     status = Column(Integer, default=1, comment="状态：1=有效，0=无效")
@@ -55,9 +58,10 @@ class HotTopic(db.Model):
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
-    # 添加唯一约束：同一日期、同一平台、同一标题不能重复
+    # 修改唯一约束：同一日期、同一平台、同一稳定哈希不能重复
     __table_args__ = (
-        UniqueConstraint('topic_date', 'platform', 'topic_title', name='uix_topic_date_platform_title'),
+        UniqueConstraint('topic_date', 'platform', 'stable_hash', name='uix_topic_date_platform_hash'),
+        Index('idx_stable_hash_date', 'stable_hash', 'topic_date'),  # 为查询优化添加索引
     )
 
 class HotTopicLog(db.Model):
@@ -100,22 +104,25 @@ class UnifiedHotTopic(db.Model):
     topic_date = Column(Date, nullable=False, index=True, comment="热点所属日期")
     
     unified_title = Column(String(512), nullable=False, comment="AI生成的统一标题")
-    unified_summary = Column(Text, comment="AI生成的统一摘要") # 可选
-    representative_url = Column(String(1024), comment="代表性链接 (可选, AI选择或默认选择第一个)")
+    unified_summary = Column(Text, comment="AI生成的统一摘要")
+    representative_url = Column(String(1024), comment="代表性链接")
     
-    # 新增：关键词字段 (JSON格式的字符串数组)
+    # 关键词字段
     keywords = Column(JSON, comment="AI提取的关键词列表 ['关键词1', '关键词2', ...]")
     
-    # 关键字段：存储关联的原始热点ID列表 (JSON格式)
-    related_topic_ids = Column(JSON, nullable=False, comment="关联的原始HotTopic ID列表") 
-    # 存储来源平台列表 (JSON格式)
+    # 修改：存储稳定的哈希值而非易变的ID
+    related_topic_hashes = Column(JSON, nullable=False, comment="关联的原始热点稳定哈希列表")
+    # 保留原字段作为备用（可选）
+    related_topic_ids = Column(JSON, comment="关联的原始HotTopic ID列表（备用）")
+    
+    # 存储来源平台列表
     source_platforms = Column(JSON, nullable=False, comment="来源平台列表 (e.g., ['weibo', 'zhihu'])")
     
-    # 聚合热度信息 (可选)
-    aggregated_hotness_score = Column(Float, comment="聚合热度分 (可选, AI计算)")
+    # 聚合热度信息
+    aggregated_hotness_score = Column(Float, comment="聚合热度分")
     topic_count = Column(Integer, default=0, comment="关联的原始热点数量")
 
-    # AI 处理信息 (可选)
+    # AI 处理信息
     ai_model_used = Column(String(100), comment="使用的AI模型")
     ai_processing_time = Column(Float, comment="AI处理耗时(秒)")
 
@@ -124,7 +131,6 @@ class UnifiedHotTopic(db.Model):
 
     def __repr__(self):
         return f"<UnifiedHotTopic {self.unified_title} ({self.topic_date})>"
-    
 
 class HotTopicPlatform(db.Model):
     """热点平台模型"""
