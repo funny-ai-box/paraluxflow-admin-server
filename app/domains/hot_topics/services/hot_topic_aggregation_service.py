@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class HotTopicAggregationService:
     """
-    负责使用AI聚合不同平台的热点话题服务，优先使用火山引擎，并使用稳定哈希关联
+    负责使用AI聚合不同平台的热点话题服务，优化token使用和输出格式
     """
     def __init__(
         self,
@@ -93,16 +93,15 @@ class HotTopicAggregationService:
             return False, f"实例化LLM提供商时发生意外错误: {str(e)}"
 
     def _prepare_prompt(self, topics: List[Dict[str, Any]], target_date: date) -> str:
-        """准备用于AI聚合的Prompt，包含稳定哈希信息"""
+        """准备用于AI聚合的Prompt，使用ID代替哈希以减少token消耗"""
 
-        # 选取关键信息，包含稳定哈希
+        # 选取关键信息，使用ID代替哈希
         simplified_topics = [
             {
-                "id": topic["id"],
-                "stable_hash": topic.get("stable_hash", ""),  # 添加稳定哈希
+                "id": topic["id"],  # 使用数字ID代替哈希
                 "platform": topic["platform"],
                 "title": topic["topic_title"],
-                "description": topic.get("topic_description", "")[:100]
+                "description": topic.get("topic_description", "")[:50]  # 进一步减少描述长度
             }
             for topic in topics if topic.get("topic_title")
         ]
@@ -110,15 +109,31 @@ class HotTopicAggregationService:
         topics_json_str = json.dumps(simplified_topics, ensure_ascii=False, indent=2)
 
         prompt = f"""
-        任务：请分析以下来自不同平台在 {target_date.isoformat()} 的热点列表，将描述**同一核心事件或话题**的热点归为一组。
+        任务：请分析以下来自不同平台在 {target_date.isoformat()} 的热点列表，将描述**同一核心事件或话题**的热点归为一组，生成约10个聚合组。
 
-        要求：
-        1. 识别相似的热点并将它们分组。
-        2. 为每一个识别出的组生成一个简洁、准确、中立的统一标题 (unified_title)，不超过30个字。
-        3. 为每个组生成一个50字以内的统一摘要 (unified_summary)。
-        4. 为每个组提取2-3个关键词 (keywords)，用于后续检索相关文章。
-        5. 在每个组中，必须包含所有被归入该组的原始热点的稳定哈希列表 (related_topic_hashes)。
-        6. 在每个组中，必须包含所有涉及的平台名称列表 (source_platforms)。
+        标题要求（非常重要）：
+        1. 必须包含具体的数据、地点、时间、人物、机构等关键信息
+        2. 采用"主体+动作+具体内容+关键数据"的格式
+        3. 避免使用"相关"、"热点"、"事件"等模糊词汇
+        4. 参考以下标题格式：
+
+        优秀标题示例：
+        - "2024年上半年全国多地出生率反弹，连续两年的人口负增长或出现逆转"
+        - "长三角城市高品质生活报告发布：上海、无锡、杭州、苏州、宁波位列前五"
+        - "人社部等十部门发意见：进一步放开放宽城镇落户限制，推动农民工参加社保"
+        - "广州官宣：12月1日起取消普通住宅和非普通住宅标准，购房满两年交易一律免征增值税"
+        - "中国异种器官移植迎新突破：已分别成功将猪肾和肝移植进入人体"
+        - "陕西神木一公司废水处理项目发生化学事故，致死26人，省里已成立调查组"
+        - "A股周五大跳水：沪指失守3300点，全市场超4900只个股下跌"
+
+        聚合要求：
+        1. 识别相似的热点并将它们分组，每组至少包含2个不同平台的热点
+        2. 生成约10个高质量的聚合组
+        3. 统一标题不超过60个字，必须包含具体信息和关键数据
+        4. 统一摘要80字以内，补充标题中的关键细节
+        5. 关键词1-2个，使用核心短语（如"高考政策"、"房地产调控"）
+        6. 包含所有被归入该组的原始热点ID列表
+        7. 包含所有涉及的平台名称列表
 
         原始热点数据 (JSON格式):
         ```json
@@ -126,31 +141,27 @@ class HotTopicAggregationService:
         ```
 
         输出格式要求：
-        请严格按照以下JSON格式返回结果，返回一个包含多个组对象的列表。每个组对象包含 unified_title, unified_summary, keywords, related_topic_hashes, source_platforms。
+        请严格按照以下JSON格式返回结果，返回一个包含约10个组对象的列表。
 
         ```json
         [
         {{
-            "unified_title": "统一标题1",
-            "unified_summary": "统一摘要1",
-            "keywords": ["关键词1", "关键词2", "关键词3"],
-            "related_topic_hashes": ["hash1", "hash2", "hash3"],
+            "unified_title": "具体机构+具体行动+关键数据+影响（60字内）",
+            "unified_summary": "详细的事件背景和影响分析（80字内）",
+            "keywords": ["核心短语1", "核心短语2"],
+            "related_topic_ids": [1, 2, 3],
             "source_platforms": ["平台A", "平台B"]
-        }},
-        {{
-            "unified_title": "统一标题2",
-            "unified_summary": "统一摘要2",
-            "keywords": ["关键词1", "关键词2"],
-            "related_topic_hashes": ["hash4", "hash5"],
-            "source_platforms": ["平台C"]
         }}
         ]
         ```
         
-        确保 related_topic_hashes 中的哈希值是来自上方提供的原始热点数据中的 stable_hash。
-        确保 source_platforms 中的名称是来自原始热点数据的平台名称。
-        确保每个组都有2-3个关键词，每个关键词应该是单个词或短语，不超过10个字。
-        如果某些热点无法与其他热点合并成组，则它们**不应**出现在最终的输出中。只输出包含**至少两个**原始热点的聚合组。
+        注意：
+        - 标题必须避免使用"相关话题"、"相关事件"、"热点"等模糊表述
+        - 必须包含具体的主体（政府部门、公司、地区等）
+        - 必须包含具体的行动或数据
+        - related_topic_ids 中的ID必须来自上方原始数据
+        - 关键词要精炼，1-2个核心短语即可
+        - 目标生成10个左右的高质量聚合组
         """
         return prompt.strip()
 
@@ -189,7 +200,7 @@ class HotTopicAggregationService:
 
     def aggregate_topics_for_date(self, topic_date: date, model_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        执行指定日期的热点聚合任务，使用稳定哈希进行关联
+        执行指定日期的热点聚合任务，优化token使用
 
         Args:
             topic_date: 需要聚合的热点日期
@@ -220,17 +231,29 @@ class HotTopicAggregationService:
         
         logger.info(f"为日期 {topic_date.isoformat()} 获取到 {len(raw_topics)} 条原始热点。")
 
-        # 2. 准备Prompt
+        # 2. 创建ID到哈希的映射表
+        id_to_hash_map = {}
+        id_to_topic_map = {}
+        for topic in raw_topics:
+            topic_id = topic["id"]
+            stable_hash = topic.get("stable_hash")
+            if not stable_hash:
+                # 如果没有哈希，生成一个
+                stable_hash = self._generate_stable_hash(topic["topic_title"], topic["platform"])
+            id_to_hash_map[topic_id] = stable_hash
+            id_to_topic_map[topic_id] = topic
+
+        # 3. 准备Prompt（使用ID）
         prompt = self._prepare_prompt(raw_topics, topic_date)
 
         try:
             ai_start_time = time.time()
 
-            # 调用AI聚合
+            # 调用AI聚合，增加max_tokens
             ai_response = self.llm_provider.generate_chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
-                max_tokens=4000
+                max_tokens=6000  # 增加token限制
             )
             ai_processing_time = time.time() - ai_start_time
             logger.info(f"AI模型调用完成，耗时: {ai_processing_time:.2f} 秒")
@@ -252,7 +275,14 @@ class HotTopicAggregationService:
                     raise ValueError("AI返回的不是一个列表")
             except json.JSONDecodeError as e:
                 logger.error(f"解析AI返回的JSON失败: {e}\n原始文本: {aggregated_result_text}")
-                raise APIException(f"AI返回结果格式错误: {e}")
+                # 尝试修复截断的JSON
+                try:
+                    # 如果JSON被截断，尝试找到最后一个完整的对象
+                    fixed_text = self._try_fix_truncated_json(aggregated_result_text)
+                    aggregated_groups = json.loads(fixed_text)
+                    logger.info("成功修复截断的JSON")
+                except:
+                    raise APIException(f"AI返回结果格式错误，无法修复: {e}")
             except ValueError as e:
                 logger.error(f"AI返回的数据结构错误: {e}\n原始数据: {aggregated_groups}")
                 raise APIException(f"AI返回数据结构错误: {e}")
@@ -270,7 +300,7 @@ class HotTopicAggregationService:
 
         for group in aggregated_groups:
             # 验证组数据结构
-            if not all(k in group for k in ["unified_title", "related_topic_hashes", "source_platforms"]):
+            if not all(k in group for k in ["unified_title", "related_topic_ids", "source_platforms"]):
                 logger.warning(f"AI返回的组数据不完整，跳过: {group}")
                 continue
             
@@ -280,44 +310,41 @@ class HotTopicAggregationService:
                 keywords = []
                 logger.warning(f"聚合组 '{group.get('unified_title')}' 没有生成关键词，使用空列表。")
 
-            # 验证稳定哈希并提取代表性URL
-            related_hashes = group.get("related_topic_hashes", [])
+            # 将ID转换为哈希
+            related_ids = group.get("related_topic_ids", [])
+            related_hashes = []
+            valid_ids = []
             representative_url = None
-            valid_hashes = []
             
-            # 从原始热点中查找匹配的哈希
-            for topic in raw_topics:
-                topic_hash = topic.get("stable_hash", "")
-                if topic_hash in related_hashes:
-                    valid_hashes.append(topic_hash)
-                    if not representative_url and topic.get("topic_url"):
-                        representative_url = topic.get("topic_url")
+            for topic_id in related_ids:
+                if topic_id in id_to_hash_map:
+                    related_hashes.append(id_to_hash_map[topic_id])
+                    valid_ids.append(topic_id)
+                    # 获取代表性URL
+                    if not representative_url and topic_id in id_to_topic_map:
+                        topic_url = id_to_topic_map[topic_id].get("topic_url")
+                        if topic_url:
+                            representative_url = topic_url
             
-            if not valid_hashes:
-                logger.warning(f"聚合组 '{group.get('unified_title')}' 没有找到有效的关联哈希，跳过")
+            if not related_hashes:
+                logger.warning(f"聚合组 '{group.get('unified_title')}' 没有找到有效的关联ID，跳过")
                 continue
-
-            # 为了向后兼容，也收集对应的topic_ids
-            related_ids = []
-            for topic in raw_topics:
-                if topic.get("stable_hash", "") in valid_hashes:
-                    related_ids.append(topic["id"])
 
             unified_data = {
                 "topic_date": topic_date,
                 "unified_title": group["unified_title"],
                 "unified_summary": group.get("unified_summary"),
                 "keywords": keywords,
-                "related_topic_hashes": valid_hashes,  # 使用稳定哈希
-                "related_topic_ids": related_ids,  # 保留原ID作为备用
+                "related_topic_hashes": related_hashes,  # 使用稳定哈希
+                "related_topic_ids": valid_ids,  # 保留原ID作为备用
                 "source_platforms": list(set(group.get("source_platforms", []))),
-                "topic_count": len(valid_hashes),
+                "topic_count": len(related_hashes),
                 "representative_url": representative_url,
                 "ai_model_used": getattr(self.llm_provider, "default_model", "Unknown"),
                 "ai_processing_time": ai_processing_time / len(aggregated_groups) if aggregated_groups else 0
             }
             unified_topics_to_create.append(unified_data)
-            processed_topic_hashes.update(valid_hashes)
+            processed_topic_hashes.update(related_hashes)
 
         # 5. 删除旧数据
         logger.info(f"准备删除日期 {topic_date.isoformat()} 的旧统一热点数据...")
@@ -345,3 +372,16 @@ class HotTopicAggregationService:
             "ai_model_used": getattr(self.llm_provider, "default_model", "Unknown"),
             "provider_used": self.llm_provider.get_provider_name() if self.llm_provider else "Unknown"
         }
+
+    def _try_fix_truncated_json(self, json_text: str) -> str:
+        """尝试修复被截断的JSON"""
+        # 移除最后一个不完整的对象
+        last_complete_brace = json_text.rfind('}')
+        if last_complete_brace != -1:
+            # 找到最后一个完整对象的结束位置
+            truncated = json_text[:last_complete_brace + 1]
+            # 确保数组正确闭合
+            if not truncated.rstrip().endswith(']'):
+                truncated += '\n]'
+            return truncated
+        raise ValueError("无法修复截断的JSON")

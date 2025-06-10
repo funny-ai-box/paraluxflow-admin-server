@@ -284,6 +284,7 @@ class VolcengineProvider(LLMProviderInterface):
             request_params.update(kwargs)
 
             # 调用火山引擎API
+            print(request_params)
             response = self.client.chat.completions.create(**request_params)
             print(response)
 
