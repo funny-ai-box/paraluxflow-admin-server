@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any, Dict
 from sqlalchemy.dialects.mysql import LONGTEXT
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, JSON, Float, func
+from sqlalchemy import Boolean, Column, Date, DateTime, Integer, String, Text, JSON, Float, func
 
 from app.extensions import db
 from app.core.security import generate_uuid
@@ -462,3 +462,37 @@ class RssFeedArticleVectorizationTask(db.Model):
     
     def __repr__(self):
         return f"<RssFeedArticleVectorizationTask id={self.id}, article_id={self.article_id}, status={self.status}>"
+    
+class RssFeedDailySummary(db.Model):
+    """RSS Feed每日阅读摘要模型"""
+    __tablename__ = "rss_feed_daily_summaries"
+
+    id = Column(Integer, primary_key=True)
+    feed_id = Column(String(32), nullable=False, comment="Feed ID")
+    summary_date = Column(Date, nullable=False, comment="摘要日期")
+    language = Column(String(10), nullable=False, comment="语言(zh/en)")
+    
+    # 摘要内容
+    summary_title = Column(String(255), comment="摘要标题")
+    summary_content = Column(Text, nullable=False, comment="摘要内容")
+    article_count = Column(Integer, default=0, comment="关联文章数量")
+    
+    # 关联的文章ID列表
+    article_ids = Column(JSON, comment="关联的文章ID列表")
+    
+    # 生成信息
+    generated_by = Column(String(50), comment="生成方式: ai/manual")
+    llm_provider = Column(String(50), comment="使用的LLM提供商")
+    llm_model = Column(String(100), comment="使用的LLM模型")
+    generation_cost_tokens = Column(Integer, comment="生成消耗的token数量")
+    
+    # 状态
+    status = Column(Integer, default=1, comment="状态：1=正常，2=已删除")
+    quality_score = Column(Integer, comment="摘要质量评分1-5")
+    
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f"<RssFeedDailySummary feed_id={self.feed_id}, date={self.summary_date}, lang={self.language}>"
+

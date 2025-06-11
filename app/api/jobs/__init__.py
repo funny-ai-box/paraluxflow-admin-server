@@ -10,6 +10,7 @@ from app.api.jobs.crawler import crawler_jobs_bp
 from app.api.jobs.hot_topics import hot_topics_jobs_bp
 from app.api.jobs.vectorization import vectorization_jobs_bp
 from app.api.jobs.feed_sync import feed_sync_jobs_bp
+from app.api.jobs.daily_summary import daily_summary_jobs_bp
 
 
 
@@ -19,3 +20,4 @@ jobs_bp.register_blueprint(crawler_jobs_bp, url_prefix="/crawler")
 jobs_bp.register_blueprint(hot_topics_jobs_bp, url_prefix="/hot_topics")
 jobs_bp.register_blueprint(feed_sync_jobs_bp,url_prefix='/feed_sync')
 jobs_bp.register_blueprint(vectorization_jobs_bp, url_prefix="/vectorization")
+jobs_bp.register_blueprint(daily_summary_jobs_bp,url_prefix='/daily_summary')
