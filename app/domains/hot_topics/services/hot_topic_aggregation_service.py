@@ -108,32 +108,41 @@ class HotTopicAggregationService:
 
         topics_json_str = json.dumps(simplified_topics, ensure_ascii=False, indent=2)
 
+        # 分类列表
+        categories = [
+            "政治", "经济", "科技", "军事", "社会", "文化", "体育", 
+            "健康", "教育", "环境", "国际", "灾难", "法律", "旅游", "生活", "其他"
+        ]
+        categories_str = "、".join(categories)
+
         prompt = f"""
         任务：请分析以下来自不同平台在 {target_date.isoformat()} 的热点列表，将描述**同一核心事件或话题**的热点归为一组，生成约10个聚合组。
 
         标题要求（非常重要）：
-        1. 必须包含具体的数据、地点、时间、人物、机构等关键信息
-        2. 采用"主体+动作+具体内容+关键数据"的格式
-        3. 避免使用"相关"、"热点"、"事件"等模糊词汇
-        4. 参考以下标题格式：
+        1. 标题不超过30个字，必须简洁精准
+        2. 必须包含具体的数据、地点、人物、机构等关键信息
+        3. 采用"主体+动作+关键数据"的紧凑格式
+        4. 避免使用"相关"、"热点"、"事件"等模糊词汇
 
-        优秀标题示例：
-        - "2024年上半年全国多地出生率反弹，连续两年的人口负增长或出现逆转"
-        - "长三角城市高品质生活报告发布：上海、无锡、杭州、苏州、宁波位列前五"
-        - "人社部等十部门发意见：进一步放开放宽城镇落户限制，推动农民工参加社保"
-        - "广州官宣：12月1日起取消普通住宅和非普通住宅标准，购房满两年交易一律免征增值税"
-        - "中国异种器官移植迎新突破：已分别成功将猪肾和肝移植进入人体"
-        - "陕西神木一公司废水处理项目发生化学事故，致死26人，省里已成立调查组"
-        - "A股周五大跳水：沪指失守3300点，全市场超4900只个股下跌"
+        优秀标题示例（30字内）：
+        - "人社部等十部门：放开城镇落户限制"
+        - "广州12月1日起取消普通住宅标准"
+        - "陕西神木化学事故致死26人"
+        - "A股大跳水：沪指失守3300点"
+        - "中国异种器官移植获新突破"
+
+        分类要求：
+        请为每个聚合组选择最适合的分类，可选分类：{categories_str}
 
         聚合要求：
         1. 识别相似的热点并将它们分组，每组至少包含2个不同平台的热点
         2. 生成约10个高质量的聚合组
-        3. 统一标题不超过60个字，必须包含具体信息和关键数据
-        4. 统一摘要80字以内，补充标题中的关键细节
-        5. 关键词1-2个，使用核心短语（如"高考政策"、"房地产调控"）
+        3. 统一标题不超过30个字，必须包含核心信息
+        4. 统一摘要60字以内，补充标题中的关键细节
+        5. 关键词1-2个，使用核心短语（如"政策调整"、"股市波动"）
         6. 包含所有被归入该组的原始热点ID列表
         7. 包含所有涉及的平台名称列表
+        8. 为每个组选择最合适的分类
 
         原始热点数据 (JSON格式):
         ```json
@@ -146,9 +155,10 @@ class HotTopicAggregationService:
         ```json
         [
         {{
-            "unified_title": "具体机构+具体行动+关键数据+影响（60字内）",
-            "unified_summary": "详细的事件背景和影响分析（80字内）",
+            "unified_title": "机构+行动+数据（30字内）",
+            "unified_summary": "事件背景和影响（60字内）",
             "keywords": ["核心短语1", "核心短语2"],
+            "category": "政治",
             "related_topic_ids": [1, 2, 3],
             "source_platforms": ["平台A", "平台B"]
         }}
@@ -156,12 +166,12 @@ class HotTopicAggregationService:
         ```
         
         注意：
-        - 标题必须避免使用"相关话题"、"相关事件"、"热点"等模糊表述
-        - 必须包含具体的主体（政府部门、公司、地区等）
-        - 必须包含具体的行动或数据
-        - related_topic_ids 中的ID必须来自上方原始数据
-        - 关键词要精炼，1-2个核心短语即可
-        - 目标生成10个左右的高质量聚合组
+        - 标题30字内，必须精炼准确
+        - 必须包含具体主体和关键数据
+        - category必须从可选分类中选择
+        - related_topic_ids必须来自上方原始数据
+        - 关键词要精炼，1-2个核心短语
+        - 目标生成10个左右高质量聚合组
         """
         return prompt.strip()
 
@@ -310,6 +320,21 @@ class HotTopicAggregationService:
                 keywords = []
                 logger.warning(f"聚合组 '{group.get('unified_title')}' 没有生成关键词，使用空列表。")
 
+            # 确保 category 字段存在
+            category = group.get("category", "其他")
+            if not category:
+                category = "其他"
+            
+            # 将中文分类转换为英文代码
+            category_mapping = {
+                "政治": "politics", "经济": "economy", "科技": "technology", 
+                "军事": "military", "社会": "society", "文化": "culture", 
+                "体育": "sports", "健康": "health", "教育": "education", 
+                "环境": "environment", "国际": "international", "灾难": "disaster", 
+                "法律": "law", "旅游": "travel", "生活": "lifestyle", "其他": "other"
+            }
+            category_code = category_mapping.get(category, "other")
+
             # 将ID转换为哈希
             related_ids = group.get("related_topic_ids", [])
             related_hashes = []
@@ -335,6 +360,7 @@ class HotTopicAggregationService:
                 "unified_title": group["unified_title"],
                 "unified_summary": group.get("unified_summary"),
                 "keywords": keywords,
+                "category": category_code,  # 添加分类字段
                 "related_topic_hashes": related_hashes,  # 使用稳定哈希
                 "related_topic_ids": valid_ids,  # 保留原ID作为备用
                 "source_platforms": list(set(group.get("source_platforms", []))),

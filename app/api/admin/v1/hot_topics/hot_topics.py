@@ -455,8 +455,13 @@ def trigger_hot_topic_aggregation():
 @auth_required
 def get_unified_hot_topics():
     """
-    获取指定日期的统一（聚合）热点列表，包含关联的原始热点信息。
-    如果不提供 topic_date，则默认获取最新一天的聚合热点。
+    获取指定日期的统一（聚合）热点列表，支持分类筛选
+    
+    查询参数:
+    - topic_date: 热点日期 (可选)
+    - page: 页码 (默认1)
+    - per_page: 每页数量 (默认20)
+    - category: 分类筛选 (可选)
     """
     logger.info("请求获取统一热点列表...")
     try:
@@ -464,11 +469,12 @@ def get_unified_hot_topics():
         topic_date_str = request.args.get("topic_date")
         page = request.args.get("page", 1, type=int)
         per_page = request.args.get("per_page", 20, type=int)
+        category = request.args.get("category")  # 分类筛选
 
         # 2. Determine Target Date
         target_date = None
-        db_session = get_db_session() # Get session early for date check
-        unified_topic_repo = UnifiedHotTopicRepository(db_session) # Need repo for date check
+        db_session = get_db_session()
+        unified_topic_repo = UnifiedHotTopicRepository(db_session)
 
         if topic_date_str:
             try:
@@ -481,37 +487,37 @@ def get_unified_hot_topics():
             target_date = unified_topic_repo.get_latest_unified_topic_date()
             if not target_date:
                  logger.info("数据库中没有找到任何统一热点数据")
-                 # Return empty list gracefully
                  return success_response({
                      "list": [], "total": 0, "pages": 0, 
                      "current_page": 1, "per_page": per_page, 
-                     "topic_date": None
+                     "topic_date": None, "category": category
                  })
             logger.info(f"未指定日期，使用最新日期: {target_date.isoformat()}")
 
         hot_topic_repo = HotTopicRepository(db_session)
 
-
-        unified_result = unified_topic_repo.get_unified_topics_by_date(target_date, page, per_page)
+        # 3. 获取统一热点（支持分类筛选）
+        unified_result = unified_topic_repo.get_unified_topics_by_date(
+            target_date, page, per_page, category
+        )
         unified_topics_list = unified_result.get("list", [])
 
         if not unified_topics_list:
-            logger.info(f"日期 {target_date.isoformat()} 没有找到统一热点数据 (Page: {page})")
-
+            logger.info(f"日期 {target_date.isoformat()} 分类 {category or '全部'} 没有找到统一热点数据 (Page: {page})")
             return success_response({
                  "list": [], "total": unified_result.get('total', 0), 
                  "pages": unified_result.get('pages', 0), 
                  "current_page": page, "per_page": per_page, 
-                 "topic_date": target_date.isoformat()
+                 "topic_date": target_date.isoformat(), "category": category
              })
 
-        # 5. Collect all related raw topic IDs from the current page
+        # 4. Collect all related raw topic IDs from the current page
         all_related_ids = set()
         for unified_topic in unified_topics_list:
             related_ids = unified_topic.get("related_topic_ids")
             if isinstance(related_ids, list):
                 all_related_ids.update(related_ids)
-            elif isinstance(related_ids, str): # Handle if stored as JSON string initially
+            elif isinstance(related_ids, str):
                  try:
                       parsed_ids = json.loads(related_ids)
                       if isinstance(parsed_ids, list):
@@ -519,42 +525,37 @@ def get_unified_hot_topics():
                  except json.JSONDecodeError:
                       logger.warning(f"无法解析 related_topic_ids JSON 字符串: {related_ids}")
 
-
-        # 6. Fetch related raw topics in one batch
+        # 5. Fetch related raw topics in one batch
         raw_topics_map = {}
         if all_related_ids:
             logger.info(f"准备获取 {len(all_related_ids)} 条关联的原始热点...")
             raw_topics_list = hot_topic_repo.get_topics_by_ids(list(all_related_ids))
-            # Create a map for easy lookup
             raw_topics_map = {topic["id"]: topic for topic in raw_topics_list}
             logger.info(f"成功获取 {len(raw_topics_map)} 条原始热点详情。")
 
-
-        # 7. Combine data: Add raw topics to each unified topic
+        # 6. Combine data: Add raw topics to each unified topic
         for unified_topic in unified_topics_list:
             related_ids = unified_topic.get("related_topic_ids", [])
-            # Ensure related_ids is a list (handle potential JSON string)
             if isinstance(related_ids, str):
                  try:
                       related_ids = json.loads(related_ids)
                  except json.JSONDecodeError:
-                      related_ids = [] # Default to empty if parsing fails
+                      related_ids = []
             
             unified_topic["related_raw_topics"] = [
                 raw_topics_map[raw_id] for raw_id in related_ids if raw_id in raw_topics_map
             ]
-            # Sort related raw topics by platform maybe? Optional.
             unified_topic["related_raw_topics"].sort(key=lambda x: x.get('platform', ''))
 
-
-        # 8. Return the enhanced result
+        # 7. Return the enhanced result
         final_response_data = {
             "list": unified_topics_list,
             "total": unified_result.get('total', 0),
             "pages": unified_result.get('pages', 0),
             "current_page": page,
             "per_page": per_page,
-            "topic_date": target_date.isoformat() # Include the date used for the query
+            "topic_date": target_date.isoformat(),
+            "category": category
         }
 
         return success_response(final_response_data)
@@ -562,6 +563,104 @@ def get_unified_hot_topics():
     except Exception as e:
         logger.error(f"获取统一热点列表失败: {str(e)}", exc_info=True)
         return error_response(PARAMETER_ERROR, f"获取统一热点列表失败: {str(e)}")
+
+@hot_topics_bp.route("/categories", methods=["GET"])
+@auth_required
+def get_categories():
+    """获取分类列表和统计信息
+    
+    查询参数:
+    - topic_date: 指定日期的统计 (可选)
+    
+    Returns:
+        分类列表和统计信息
+    """
+    try:
+        # 导入分类配置
+        from app.core.constants.article_categories import get_category_list, get_category_by_code
+        
+        topic_date_str = request.args.get("topic_date")
+        target_date = None
+        
+        if topic_date_str:
+            try:
+                target_date = datetime.strptime(topic_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                return error_response(PARAMETER_ERROR, "无效的日期格式，应为YYYY-MM-DD")
+        
+        # 获取基础分类列表
+        categories = get_category_list()
+        
+        # 获取统计信息
+        db_session = get_db_session()
+        unified_topic_repo = UnifiedHotTopicRepository(db_session)
+        stats = unified_topic_repo.get_categories_stats(target_date)
+        
+        # 合并统计信息到分类列表
+        for category in categories:
+            category["count"] = stats.get(category["code"], 0)
+        
+        # 添加"全部"选项
+        total_count = sum(stats.values())
+        result = [{"code": "all", "name": "全部", "count": total_count}] + categories
+        
+        return success_response({
+            "categories": result,
+            "topic_date": target_date.isoformat() if target_date else None,
+            "total_count": total_count
+        })
+        
+    except Exception as e:
+        logger.error(f"获取分类列表失败: {str(e)}", exc_info=True)
+        return error_response(PARAMETER_ERROR, f"获取分类列表失败: {str(e)}")
+
+@hot_topics_bp.route("/categories/stats", methods=["GET"])
+@auth_required
+def get_category_stats():
+    """获取分类统计信息
+    
+    查询参数:
+    - start_date: 开始日期 (可选)
+    - end_date: 结束日期 (可选)
+    
+    Returns:
+        分类统计趋势
+    """
+    try:
+        from app.core.constants.article_categories import get_category_by_code
+        
+        start_date_str = request.args.get("start_date")
+        end_date_str = request.args.get("end_date")
+        
+        db_session = get_db_session()
+        unified_topic_repo = UnifiedHotTopicRepository(db_session)
+        
+        # 如果指定了日期范围，可以扩展查询逻辑
+        # 这里先提供基础实现
+        stats = unified_topic_repo.get_categories_stats()
+        
+        # 格式化统计结果
+        formatted_stats = []
+        for category_code, count in stats.items():
+            category_info = get_category_by_code(category_code)
+            formatted_stats.append({
+                "code": category_code,
+                "name": category_info["name"],
+                "count": count
+            })
+        
+        # 按数量排序
+        formatted_stats.sort(key=lambda x: x["count"], reverse=True)
+        
+        return success_response({
+            "stats": formatted_stats,
+            "start_date": start_date_str,
+            "end_date": end_date_str
+        })
+        
+    except Exception as e:
+        logger.error(f"获取分类统计失败: {str(e)}", exc_info=True)
+        return error_response(PARAMETER_ERROR, f"获取分类统计失败: {str(e)}")
 
 @hot_topics_bp.route("/related_articles", methods=["GET"])
 @auth_required

@@ -110,6 +110,9 @@ class UnifiedHotTopic(db.Model):
     # 关键词字段
     keywords = Column(JSON, comment="AI提取的关键词列表 ['关键词1', '关键词2', ...]")
     
+    # 新增：分类字段
+    category = Column(String(50), default="other", comment="内容分类 (politics/economy/technology等)")
+    
     # 修改：存储稳定的哈希值而非易变的ID
     related_topic_hashes = Column(JSON, nullable=False, comment="关联的原始热点稳定哈希列表")
     # 保留原字段作为备用（可选）

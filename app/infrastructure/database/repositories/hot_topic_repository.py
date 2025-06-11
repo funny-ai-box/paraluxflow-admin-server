@@ -707,17 +707,28 @@ class UnifiedHotTopicRepository:
             logger.error(f"批量创建统一热点失败: {str(e)}")
             return False
 
-    def get_unified_topics_by_date(self, topic_date: date, page: int = 1, per_page: int = 20) -> Dict[str, Any]:
-        """根据日期获取统一热点列表 (分页)"""
+    def get_unified_topics_by_date(self, topic_date: date, page: int = 1, per_page: int = 20, category: Optional[str] = None) -> Dict[str, Any]:
+        """根据日期获取统一热点列表 (分页)
+        
+        Args:
+            topic_date: 热点日期
+            page: 页码
+            per_page: 每页数量
+            category: 分类筛选 (可选)
+        """
         try:
             query = self.db.query(UnifiedHotTopic).filter(UnifiedHotTopic.topic_date == topic_date)
+            
+            # 添加分类筛选
+            if category and category != "all":
+                query = query.filter(UnifiedHotTopic.category == category)
             
             total = query.count()
             
             items = query.order_by(desc(UnifiedHotTopic.aggregated_hotness_score), desc(UnifiedHotTopic.topic_count))\
-                         .limit(per_page)\
-                         .offset((page - 1) * per_page)\
-                         .all()
+                        .limit(per_page)\
+                        .offset((page - 1) * per_page)\
+                        .all()
 
             pages = (total + per_page - 1) // per_page if per_page > 0 else 0
 
@@ -731,6 +742,34 @@ class UnifiedHotTopicRepository:
         except SQLAlchemyError as e:
             logger.error(f"按日期获取统一热点失败: {str(e)}")
             return {"list": [], "total": 0, "pages": 0, "current_page": page, "per_page": per_page, "error": str(e)}
+
+    def get_categories_stats(self, topic_date: Optional[date] = None) -> Dict[str, int]:
+        """获取分类统计信息
+        
+        Args:
+            topic_date: 可选的日期筛选
+            
+        Returns:
+            各分类的数量统计
+        """
+        try:
+            query = self.db.query(UnifiedHotTopic.category, func.count(UnifiedHotTopic.id).label('count'))
+            
+            if topic_date:
+                query = query.filter(UnifiedHotTopic.topic_date == topic_date)
+            
+            results = query.group_by(UnifiedHotTopic.category).all()
+            
+            # 转换为字典格式
+            stats = {}
+            for category, count in results:
+                stats[category] = count
+                
+            return stats
+        except SQLAlchemyError as e:
+            logger.error(f"获取分类统计失败: {str(e)}")
+            return {}
+
 
     def delete_by_date(self, topic_date: date) -> bool:
         """删除指定日期的所有统一热点 (用于重新生成)"""
@@ -753,8 +792,9 @@ class UnifiedHotTopicRepository:
             "unified_summary": topic.unified_summary,
             "representative_url": topic.representative_url,
             "keywords": topic.keywords,
-            "related_topic_hashes": topic.related_topic_hashes,  # 新增稳定哈希字段
-            "related_topic_ids": topic.related_topic_ids,  # 保留原字段作为备用
+            "category": topic.category,  # 添加分类字段
+            "related_topic_hashes": topic.related_topic_hashes,
+            "related_topic_ids": topic.related_topic_ids,
             "source_platforms": topic.source_platforms,
             "aggregated_hotness_score": topic.aggregated_hotness_score,
             "topic_count": topic.topic_count,
