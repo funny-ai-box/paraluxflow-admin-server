@@ -287,7 +287,6 @@ class RssFeedArticleRepository:
         """
         try:
             articles = self.db.query(RssFeedArticle).filter(
-                RssFeedArticle.id==117700,
                 RssFeedArticle.status == 0,  # 待抓取
                 RssFeedArticle.is_locked == False,  # 未锁定
                 RssFeedArticle.retry_count < RssFeedArticle.max_retries  # 重试次数未达上限
