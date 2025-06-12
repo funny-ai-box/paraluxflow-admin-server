@@ -287,6 +287,7 @@ class RssFeedArticleRepository:
         """
         try:
             articles = self.db.query(RssFeedArticle).filter(
+                RssFeedArticle.id==117700,
                 RssFeedArticle.status == 0,  # 待抓取
                 RssFeedArticle.is_locked == False,  # 未锁定
                 RssFeedArticle.retry_count < RssFeedArticle.max_retries  # 重试次数未达上限
@@ -391,6 +392,74 @@ class RssFeedArticleRepository:
             logger.error(f"获取待向量化文章失败: {str(e)}")
             return []
 
+    def update_article_summaries(self, article_id: int, update_data: Dict[str, Any]) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """更新文章摘要信息
+        
+        Args:
+            article_id: 文章ID
+            update_data: 更新数据
+            
+        Returns:
+            (错误信息, 更新后的文章信息)
+        """
+        try:
+            article = self.db.query(RssFeedArticle).filter(RssFeedArticle.id == article_id).first()
+            if not article:
+                return f"未找到ID为{article_id}的文章", None
+            
+            # 更新字段
+            for key, value in update_data.items():
+                if hasattr(article, key):
+                    setattr(article, key, value)
+            
+            # 更新时间
+            article.updated_at = datetime.now()
+            
+            self.db.commit()
+            self.db.refresh(article)
+            
+            return None, self._article_to_dict(article)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error(f"更新文章摘要失败, ID={article_id}: {str(e)}")
+            return str(e), None
+
+    def update_article_fields(self, article_id: int, update_data: Dict[str, Any]) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """更新文章字段
+        
+        Args:
+            article_id: 文章ID
+            update_data: 更新数据
+            
+        Returns:
+            (错误信息, 更新后的文章信息)
+        """
+        try:
+            article = self.db.query(RssFeedArticle).filter(RssFeedArticle.id == article_id).first()
+            if not article:
+                return f"未找到ID为{article_id}的文章", None
+            
+            # 更新字段
+            for key, value in update_data.items():
+                if hasattr(article, key):
+                    setattr(article, key, value)
+                    logger.debug(f"更新字段 {key} = {value}")
+                else:
+                    logger.warning(f"文章模型不存在字段: {key}")
+            
+            # 更新时间
+            article.updated_at = datetime.now()
+            
+            self.db.commit()
+            self.db.refresh(article)
+            
+            logger.info(f"成功更新文章 {article_id} 的字段")
+            return None, self._article_to_dict(article)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error(f"更新文章字段失败, ID={article_id}: {str(e)}")
+            return str(e), None
+        
     def _article_to_dict(self, article: RssFeedArticle) -> Dict[str, Any]:
         """将文章对象转换为字典
         
@@ -410,6 +479,8 @@ class RssFeedArticleRepository:
             "status": article.status,
             "title": article.title,
             "summary": article.summary,
+            "chinese_summary": getattr(article, 'chinese_summary', None),  # 新增字段
+            "english_summary": getattr(article, 'english_summary', None),   # 新增字段
             "thumbnail_url": article.thumbnail_url,
             "published_date": article.published_date.isoformat() if article.published_date else None,
             "is_locked": article.is_locked,
@@ -420,7 +491,6 @@ class RssFeedArticleRepository:
             "vectorized_at": article.vectorized_at.isoformat() if article.vectorized_at else None,
             "vectorization_error": article.vectorization_error,
             "vector_id": article.vector_id,
-            
             "retry_count": article.retry_count,
             "max_retries": article.max_retries,
             "error_message": article.error_message,

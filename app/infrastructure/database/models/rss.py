@@ -224,6 +224,9 @@ class RssFeedArticle(db.Model):
     vectorization_error = Column(Text, comment="向量化错误信息")
     vectorization_status = Column(Integer, default=0, comment="向量化状态：0=未处理，1=已成功，2=失败，3=正在处理")
 
+    chinese_summary = Column(Text, comment="中文摘要(AI生成)")
+    english_summary = Column(Text, comment="英文摘要(AI生成)")
+
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

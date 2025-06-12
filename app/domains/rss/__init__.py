@@ -6,3 +6,4 @@ from app.domains.rss.services.article_service import ArticleService
 from app.domains.rss.services.script_service import ScriptService
 from app.domains.rss.services.crawler_service import CrawlerService
 from app.domains.rss.services.sync_service import SyncService
+from app.domains.rss.services.summary_generation_service import SummaryGenerationService
