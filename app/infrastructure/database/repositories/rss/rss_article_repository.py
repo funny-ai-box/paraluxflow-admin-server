@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
-from sqlalchemy import and_, or_, desc
+from sqlalchemy import and_, or_, desc, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -108,7 +108,129 @@ class RssFeedArticleRepository:
                 "filters_applied": filters or {},
                 "error": str(e)
             }
+    def get_articles_by_date_range(self, feed_ids, date_from, date_to, search_query=None, timezone_offset=8):
+        """按日期范围获取文章列表
+        
+        Args:
+            feed_ids: Feed ID列表
+            date_from: 开始日期 (date对象)
+            date_to: 结束日期 (date对象)  
+            search_query: 搜索关键词
+            timezone_offset: 时区偏移小时数，默认+8
+            
+        Returns:
+            文章列表
+        """
+        try:
+            # 构建基础查询
+            query = """
+                SELECT 
+                    a.id,
+                    a.feed_id,
+                    a.title,
+                    a.url,
+                    a.summary,
+                    a.published_at,
+                    a.created_at,
+                    a.updated_at
+                FROM rss_feed_articles a 
+                WHERE a.feed_id IN :feed_ids
+            """
+            
+            params = {"feed_ids": tuple(feed_ids)}
+            
+            # 添加日期范围过滤
+            # 使用 DATE() 函数提取日期部分，并考虑时区偏移
+            query += """
+                AND DATE(DATETIME(a.published_at, '+{} hours')) BETWEEN :date_from AND :date_to
+            """.format(timezone_offset)
+            
+            params["date_from"] = date_from.isoformat()
+            params["date_to"] = date_to.isoformat()
+            
+            # 添加搜索条件
+            if search_query:
+                query += """
+                    AND (a.title LIKE :search OR a.summary LIKE :search)
+                """
+                params["search"] = f"%{search_query}%"
+            
+            # 按发布时间排序
+            query += " ORDER BY a.published_at DESC"
+            
+            result = self.session.execute(text(query), params)
+            articles = []
+            
+            for row in result:
+                article = {
+                    "id": row.id,
+                    "feed_id": row.feed_id,
+                    "title": row.title,
+                    "url": row.url,
+                    "summary": row.summary,
+                    "published_at": row.published_at,
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at
+                }
+                articles.append(article)
+                
+            return articles
+            
+        except Exception as e:
+            logger.error(f"按日期范围获取文章失败: {str(e)}", exc_info=True)
+            raise e
 
+
+    def get_article_dates_summary(self, feed_ids, date_from, date_to, timezone_offset=8):
+        """获取日期范围内每天的文章数量统计
+        
+        Args:
+            feed_ids: Feed ID列表
+            date_from: 开始日期
+            date_to: 结束日期
+            timezone_offset: 时区偏移
+            
+        Returns:
+            每日文章数量统计
+            [
+                {"date": "2024-01-15", "count": 25},
+                {"date": "2024-01-14", "count": 18},
+                ...
+            ]
+        """
+        try:
+            query = """
+                SELECT 
+                    DATE(DATETIME(a.published_at, '+{} hours')) as article_date,
+                    COUNT(*) as article_count
+                FROM rss_feed_articles a 
+                WHERE a.feed_id IN :feed_ids
+                    AND DATE(DATETIME(a.published_at, '+{} hours')) BETWEEN :date_from AND :date_to
+                GROUP BY DATE(DATETIME(a.published_at, '+{} hours'))
+                ORDER BY article_date DESC
+            """.format(timezone_offset, timezone_offset, timezone_offset)
+            
+            params = {
+                "feed_ids": tuple(feed_ids),
+                "date_from": date_from.isoformat(),
+                "date_to": date_to.isoformat()
+            }
+            
+            result = self.session.execute(text(query), params)
+            summary = []
+            
+            for row in result:
+                summary.append({
+                    "date": row.article_date,
+                    "count": row.article_count
+                })
+                
+            return summary
+            
+        except Exception as e:
+            logger.error(f"获取文章日期统计失败: {str(e)}", exc_info=True)
+            raise e
+        
     def get_article_by_id(self, article_id: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """根据ID获取文章
         

@@ -1,9 +1,10 @@
 # app/api/client/v1/rss/article.py
 """客户端文章API接口 (GET/POST only, No groups)"""
+from collections import defaultdict
 import logging
 from flask import Blueprint, request, g, Response
 from urllib.parse import unquote
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from app.core.responses import success_response, error_response
 from app.core.status_codes import PARAMETER_ERROR, NOT_FOUND
@@ -32,6 +33,188 @@ article_bp = Blueprint("client_article", __name__) # Removed url_prefix
 logger = logging.getLogger(__name__)
 
 
+
+@article_bp.route("/list/by_date", methods=["GET"])
+@client_auth_required
+def get_articles_by_date():
+    """获取用户订阅的文章列表，按日期聚合显示
+    
+    查询参数:
+    - date_from: 开始日期，默认7天前 (YYYY-MM-DD)
+    - date_to: 结束日期，默认今天 (YYYY-MM-DD)
+    - feed_id: 可选，按特定Feed过滤
+    - search: 可选，按标题或摘要搜索关键词
+    - timezone: 时区偏移，默认+8 (东八区)
+    
+    Returns:
+        按日期聚合的文章列表
+        {
+            "data": {
+                "2024-01-15": [
+                    {
+                        "id": 1,
+                        "title": "文章标题",
+                        "summary": "文章摘要",
+                        "url": "文章链接",
+                        "feed_name": "来源Feed名称",
+                        "feed_id": 1,
+                        "published_at": "2024-01-15T10:30:00",
+                        "read_status": false
+                    }
+                ],
+                "2024-01-14": [...],
+                ...
+            },
+            "date_range": {
+                "from": "2024-01-08",
+                "to": "2024-01-15"
+            },
+            "total_articles": 125,
+            "total_dates": 8
+        }
+    """
+    try:
+        user_id = g.user_id
+        
+        # 解析日期参数
+        date_from_str = request.args.get("date_from")
+        date_to_str = request.args.get("date_to") 
+        timezone_offset = request.args.get("timezone", 8, type=int)  # 默认东八区
+        
+        # 设置默认日期范围（最近7天）
+        if not date_to_str:
+            date_to = date.today()
+        else:
+            try:
+                date_to = date.fromisoformat(date_to_str)
+            except ValueError:
+                return error_response(PARAMETER_ERROR, "无效的结束日期格式，应为YYYY-MM-DD")
+        
+        if not date_from_str:
+            date_from = date_to - timedelta(days=6)  # 7天范围
+        else:
+            try:
+                date_from = date.fromisoformat(date_from_str)
+            except ValueError:
+                return error_response(PARAMETER_ERROR, "无效的开始日期格式，应为YYYY-MM-DD")
+        
+        # 验证日期范围
+        if date_from > date_to:
+            return error_response(PARAMETER_ERROR, "开始日期不能晚于结束日期")
+        
+        # 其他过滤参数
+        feed_id = request.args.get("feed_id")
+        search_query = request.args.get("search")
+
+        db_session = get_db_session()
+        article_repo = RssFeedArticleRepository(db_session)
+        subscription_repo = UserSubscriptionRepository(db_session)
+        reading_history_repo = UserReadingHistoryRepository(db_session)
+        feed_repo = RssFeedRepository(db_session)
+
+        # 获取用户订阅的Feed列表
+        subscriptions = subscription_repo.get_user_subscriptions(user_id)
+        if not subscriptions:
+            return success_response({
+                "data": {},
+                "date_range": {
+                    "from": date_from.isoformat(),
+                    "to": date_to.isoformat()
+                },
+                "total_articles": 0,
+                "total_dates": 0
+            })
+
+        subscribed_feed_ids = [sub["feed_id"] for sub in subscriptions]
+        
+        # 如果指定了特定Feed，检查用户是否订阅
+        if feed_id:
+            if int(feed_id) not in subscribed_feed_ids:
+                return error_response(NOT_FOUND, "未找到该Feed或未订阅")
+            subscribed_feed_ids = [int(feed_id)]
+
+        # 获取文章列表（按日期范围）
+        articles = article_repo.get_articles_by_date_range(
+            feed_ids=subscribed_feed_ids,
+            date_from=date_from,
+            date_to=date_to,
+            search_query=search_query,
+            timezone_offset=timezone_offset
+        )
+
+        # 获取用户已读文章ID列表
+        read_articles = set()
+        if articles:
+            read_article_ids = reading_history_repo.get_article_ids_by_status({
+                "user_id": user_id,
+                "is_read": True
+            })
+            read_articles = set(read_article_ids)
+
+        # 获取Feed信息（使用现有方法）
+        feed_info_map = {}
+        if articles:
+            unique_feed_ids = list(set(article["feed_id"] for article in articles))
+            for feed_id in unique_feed_ids:
+                err, feed = feed_repo.get_feed_by_id(feed_id)
+                if not err and feed:
+                    feed_info_map[feed_id] = feed
+
+        # 按日期聚合文章
+        articles_by_date = defaultdict(list)
+        
+        for article in articles:
+            # 根据时区调整发布日期
+            published_at = article["published_at"]
+            if isinstance(published_at, str):
+                published_at = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+            
+            # 调整时区后的日期作为分组key
+            local_date = (published_at + timedelta(hours=timezone_offset)).date()
+            date_key = local_date.isoformat()
+            
+            # 构建文章信息
+            feed_info = feed_info_map.get(article["feed_id"], {})
+            article_data = {
+                "id": article["id"],
+                "title": article["title"],
+                "summary": article.get("summary", ""),
+                "url": article["url"],
+                "feed_name": feed_info.get("title", "未知来源"),
+                "feed_id": article["feed_id"],
+                "published_at": published_at.isoformat(),
+                "read_status": article["id"] in read_articles
+            }
+            
+            articles_by_date[date_key].append(article_data)
+
+        # 对每个日期的文章按发布时间排序（最新的在前）
+        for date_key in articles_by_date:
+            articles_by_date[date_key].sort(
+                key=lambda x: x["published_at"], 
+                reverse=True
+            )
+
+        # 转换为普通字典并按日期倒序排列
+        result_data = dict(sorted(articles_by_date.items(), reverse=True))
+        
+        return success_response({
+            "data": result_data,
+            "date_range": {
+                "from": date_from.isoformat(),
+                "to": date_to.isoformat()
+            },
+            "total_articles": len(articles),
+            "total_dates": len(result_data)
+        })
+
+    except Exception as e:
+        logger.error(f"获取按日期聚合的文章列表失败: {str(e)}", exc_info=True)
+        return error_response(500, f"获取文章列表失败: {str(e)}")
+
+
+
+    
 @article_bp.route("/list", methods=["GET"])
 @client_auth_required
 def get_articles():

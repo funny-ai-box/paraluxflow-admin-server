@@ -471,7 +471,33 @@ class UserReadingHistoryRepository:
         except SQLAlchemyError as e:
             logger.error(f"根据状态获取文章ID失败: {str(e)}")
             return []
+        
+    def get_read_article_ids_from_list(self, user_id: str, article_ids: List[int]) -> List[int]:
+        """从给定的文章ID列表中获取用户已读的文章ID
+        
+        Args:
+            user_id: 用户ID
+            article_ids: 要检查的文章ID列表
             
+        Returns:
+            用户已读的文章ID列表
+        """
+        try:
+            if not article_ids:
+                return []
+                
+            read_ids = self.db.query(UserReadingHistory.article_id).filter(
+                UserReadingHistory.user_id == user_id,
+                UserReadingHistory.article_id.in_(article_ids),
+                UserReadingHistory.is_read == True
+            ).all()
+            
+            return [article_id[0] for article_id in read_ids]
+            
+        except SQLAlchemyError as e:
+            logger.error(f"获取已读文章ID失败, user_id={user_id}: {str(e)}")
+            return []
+                
 
     
     def add_reading_record(self, reading_data: Dict[str, Any]) -> Optional[UserReadingHistory]:
