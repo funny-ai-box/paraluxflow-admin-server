@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.infrastructure.database.models.rss import RssFeedArticle
+from app.infrastructure.database.session import get_db_session
 
 logger = logging.getLogger(__name__)
 
@@ -157,8 +158,8 @@ class RssFeedArticleRepository:
             
             # 按发布时间排序
             query += " ORDER BY a.published_at DESC"
-            
-            result = self.session.execute(text(query), params)
+            db_session = get_db_session()
+            result = db_session.execute(text(query), params)
             articles = []
             
             for row in result:
