@@ -110,77 +110,55 @@ class RssFeedArticleRepository:
                 "error": str(e)
             }
     def get_articles_by_date_range(self, feed_ids, date_from, date_to, search_query=None, timezone_offset=8):
-        """按日期范围获取文章列表
-        
-        Args:
-            feed_ids: Feed ID列表
-            date_from: 开始日期 (date对象)
-            date_to: 结束日期 (date对象)  
-            search_query: 搜索关键词
-            timezone_offset: 时区偏移小时数，默认+8
-            
-        Returns:
-            文章列表
-        """
         try:
-            # 构建基础查询
-            query = """
-                SELECT 
-                    a.id,
-                    a.feed_id,
-                    a.title,
-                    a.url,
-                    a.summary,
-                    a.published_at,
-                    a.created_at,
-                    a.updated_at
-                FROM rss_feed_articles a 
-                WHERE a.feed_id IN :feed_ids
-            """
+            from sqlalchemy import func
             
-            params = {"feed_ids": tuple(feed_ids)}
+            query = self.db.query(RssFeedArticle)
             
-            # 添加日期范围过滤
-            # 使用 DATE() 函数提取日期部分，并考虑时区偏移
-            query += """
-                AND DATE(DATETIME(a.published_at, '+{} hours')) BETWEEN :date_from AND :date_to
-            """.format(timezone_offset)
+            # Feed ID 过滤
+            query = query.filter(RssFeedArticle.feed_id.in_(feed_ids))
             
-            params["date_from"] = date_from.isoformat()
-            params["date_to"] = date_to.isoformat()
+            # 时区处理 - 使用 Python 进行时区转换
+            # 计算UTC时间范围
+            from datetime import timedelta
+            utc_date_from = datetime.combine(date_from, datetime.min.time()) - timedelta(hours=timezone_offset)
+            utc_date_to = datetime.combine(date_to, datetime.max.time()) - timedelta(hours=timezone_offset)
             
-            # 添加搜索条件
+            query = query.filter(
+                RssFeedArticle.published_date.between(utc_date_from, utc_date_to)
+            )
+            
+            # 搜索条件
             if search_query:
-                query += """
-                    AND (a.title LIKE :search OR a.summary LIKE :search)
-                """
-                params["search"] = f"%{search_query}%"
+                query = query.filter(
+                    or_(
+                        RssFeedArticle.title.like(f"%{search_query}%"),
+                        RssFeedArticle.summary.like(f"%{search_query}%")
+                    )
+                )
             
-            # 按发布时间排序
-            query += " ORDER BY a.published_at DESC"
-            db_session = get_db_session()
-            result = db_session.execute(text(query), params)
+            # 排序
+            query = query.order_by(RssFeedArticle.published_date.desc())
+            
+            # 执行查询并转换结果
             articles = []
+            for article in query.all():
+                articles.append({
+                    "id": article.id,
+                    "feed_id": article.feed_id,
+                    "title": article.title,
+                    "url": article.link,  # 注意字段名差异
+                    "summary": article.summary,
+                    "published_date": article.published_date.isoformat() if article.published_date else None,
+                    "created_at": article.created_at.isoformat() if article.created_at else None,
+                    "updated_at": article.updated_at.isoformat() if article.updated_at else None
+                })
             
-            for row in result:
-                article = {
-                    "id": row.id,
-                    "feed_id": row.feed_id,
-                    "title": row.title,
-                    "url": row.url,
-                    "summary": row.summary,
-                    "published_at": row.published_at,
-                    "created_at": row.created_at,
-                    "updated_at": row.updated_at
-                }
-                articles.append(article)
-                
             return articles
             
         except Exception as e:
             logger.error(f"按日期范围获取文章失败: {str(e)}", exc_info=True)
             raise e
-
 
     def get_article_dates_summary(self, feed_ids, date_from, date_to, timezone_offset=8):
         """获取日期范围内每天的文章数量统计
@@ -202,12 +180,12 @@ class RssFeedArticleRepository:
         try:
             query = """
                 SELECT 
-                    DATE(DATETIME(a.published_at, '+{} hours')) as article_date,
+                    DATE(DATETIME(a.published_date, '+{} hours')) as article_date,
                     COUNT(*) as article_count
                 FROM rss_feed_articles a 
                 WHERE a.feed_id IN :feed_ids
-                    AND DATE(DATETIME(a.published_at, '+{} hours')) BETWEEN :date_from AND :date_to
-                GROUP BY DATE(DATETIME(a.published_at, '+{} hours'))
+                    AND DATE(DATETIME(a.published_date, '+{} hours')) BETWEEN :date_from AND :date_to
+                GROUP BY DATE(DATETIME(a.published_date, '+{} hours'))
                 ORDER BY article_date DESC
             """.format(timezone_offset, timezone_offset, timezone_offset)
             

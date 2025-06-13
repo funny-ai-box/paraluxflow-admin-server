@@ -58,7 +58,7 @@ def get_articles_by_date():
                         "url": "文章链接",
                         "feed_name": "来源Feed名称",
                         "feed_id": 1,
-                        "published_at": "2024-01-15T10:30:00",
+                        "published_date": "2024-01-15T10:30:00",
                         "read_status": false
                     }
                 ],
@@ -165,12 +165,12 @@ def get_articles_by_date():
         
         for article in articles:
             # 根据时区调整发布日期
-            published_at = article["published_at"]
-            if isinstance(published_at, str):
-                published_at = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+            published_date = article["published_date"]
+            if isinstance(published_date, str):
+                published_date = datetime.fromisoformat(published_date.replace('Z', '+00:00'))
             
             # 调整时区后的日期作为分组key
-            local_date = (published_at + timedelta(hours=timezone_offset)).date()
+            local_date = (published_date + timedelta(hours=timezone_offset)).date()
             date_key = local_date.isoformat()
             
             # 构建文章信息
@@ -182,7 +182,7 @@ def get_articles_by_date():
                 "url": article["url"],
                 "feed_name": feed_info.get("title", "未知来源"),
                 "feed_id": article["feed_id"],
-                "published_at": published_at.isoformat(),
+                "published_date": published_date.isoformat(),
                 "read_status": article["id"] in read_articles
             }
             
@@ -191,7 +191,7 @@ def get_articles_by_date():
         # 对每个日期的文章按发布时间排序（最新的在前）
         for date_key in articles_by_date:
             articles_by_date[date_key].sort(
-                key=lambda x: x["published_at"], 
+                key=lambda x: x["published_date"], 
                 reverse=True
             )
 
