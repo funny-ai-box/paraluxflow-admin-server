@@ -129,9 +129,9 @@ def get_articles_by_date():
         
         # 如果指定了特定Feed，检查用户是否订阅
         if feed_id:
-            if int(feed_id) not in subscribed_feed_ids:
+            if feed_id not in subscribed_feed_ids:
                 return error_response(NOT_FOUND, "未找到该Feed或未订阅")
-            subscribed_feed_ids = [int(feed_id)]
+            subscribed_feed_ids = [feed_id]
 
         # 获取文章列表（按日期范围）
         articles = article_repo.get_articles_by_date_range(
@@ -175,18 +175,10 @@ def get_articles_by_date():
             
             # 构建文章信息
             feed_info = feed_info_map.get(article["feed_id"], {})
-            article_data = {
-                "id": article["id"],
-                "title": article["title"],
-                "summary": article.get("summary", ""),
-                "url": article["url"],
-                "feed_name": feed_info.get("title", "未知来源"),
-                "feed_id": article["feed_id"],
-                "published_date": published_date.isoformat(),
-                "read_status": article["id"] in read_articles
-            }
+            article['feed_title']=feed_info.get("title", "未知来源")
             
-            articles_by_date[date_key].append(article_data)
+         
+            articles_by_date[date_key].append(article)
 
         # 对每个日期的文章按发布时间排序（最新的在前）
         for date_key in articles_by_date:

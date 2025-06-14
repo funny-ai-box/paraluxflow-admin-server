@@ -147,7 +147,10 @@ class RssFeedArticleRepository:
                     "id": article.id,
                     "feed_id": article.feed_id,
                     "title": article.title,
-                    "url": article.link,  # 注意字段名差异
+                    "url": article.link,
+                    "chinese_summary":article.chinese_summary,
+                    "thumbnail_url":article.thumbnail_url,
+                    "english_summary":article.english_summary,
                     "summary": article.summary,
                     "published_date": article.published_date.isoformat() if article.published_date else None,
                     "created_at": article.created_at.isoformat() if article.created_at else None,
